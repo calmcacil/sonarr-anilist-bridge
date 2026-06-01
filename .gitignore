@@ -1,0 +1,18 @@
+# Binaries
+/server
+*.test
+*.out
+*.test.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+*.db

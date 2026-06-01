@@ -1,0 +1,14 @@
+services:
+  sonarr-seasonal:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - seasonal-data:/data
+    environment:
+      - PREWARM_YEARS=2026
+      - CACHE_STALE_DAYS=14
+      - LOG_LEVEL=info
+
+volumes:
+  seasonal-data:

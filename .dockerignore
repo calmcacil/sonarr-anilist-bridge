@@ -1,0 +1,8 @@
+.git
+.gitignore
+.DS_Store
+specs/
+README.md
+LICENSE
+NOTICE
+*.md
