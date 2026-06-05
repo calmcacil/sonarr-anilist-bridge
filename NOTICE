@@ -1,9 +1,9 @@
 anilistgen
 Copyright (c) 2025 calmcacil
 
-This project includes data from shinkro/community-mapping:
+This project includes data from anibridge/anibridge-mappings:
 
-  shinkro/community-mapping
-  Copyright (c) 2023 Rohit Vardam
+  anibridge/anibridge-mappings
+  Copyright (c) 2025-present anibridge contributors
   Licensed under the MIT License.
-  https://github.com/shinkro/community-mapping
+  https://github.com/anibridge/anibridge-mappings
