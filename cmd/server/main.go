@@ -47,6 +47,15 @@ func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Warm the cache before accepting requests so the first client hit
+	// gets real data instead of triggering an async backfill.
+	sched.LoadResolver()
+	slog.Info("prewarming cache")
+	if err := sched.Prewarm(ctx); err != nil {
+		slog.Error("prewarm failed", "error", err)
+	}
+	slog.Info("prewarm complete")
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/list", handleList(db, sched, cfg))
 	mux.HandleFunc("/health", handleHealth)
@@ -60,14 +69,14 @@ func run() error {
 		IdleTimeout:  30 * time.Second,
 	}
 
+	sched.StartBackground(ctx)
+
 	go func() {
 		slog.Info("listening", "addr", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 		}
 	}()
-
-	sched.Start(ctx)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

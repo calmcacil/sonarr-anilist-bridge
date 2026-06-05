@@ -36,17 +36,23 @@ func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 	}
 }
 
-func (s *Scheduler) Start(ctx context.Context) {
-	go func() {
-		s.loadResolver()
+// LoadResolver loads the anibridge mapping synchronously. Must be called
+// before any Resolve / ResolveBatch call.
+func (s *Scheduler) LoadResolver() {
+	path := s.cfg.AnibridgeMappingPath
+	upstream := s.cfg.AnibridgeURL
+	m, _, err := mapping.LoadOrFetch(path, upstream)
+	if err != nil {
+		slog.Error("failed to load anibridge mapping", "error", err)
+		return
+	}
+	s.resolver.SetMapping(m)
+}
 
-		slog.Info("starting prewarm")
-		if err := s.Prewarm(ctx); err != nil {
-			slog.Error("prewarm failed", "error", err)
-		}
-		slog.Info("prewarm complete")
-	}()
-
+// StartBackground launches background refresh goroutines: stale entry
+// refresh (every 10 min) and mapping refresh (every 1 h). Does not
+// block; the caller should Prewarm synchronously before calling this.
+func (s *Scheduler) StartBackground(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
@@ -75,17 +81,6 @@ func (s *Scheduler) Start(ctx context.Context) {
 			}
 		}
 	}()
-}
-
-func (s *Scheduler) loadResolver() {
-	path := s.cfg.AnibridgeMappingPath
-	upstream := s.cfg.AnibridgeURL
-	m, _, err := mapping.LoadOrFetch(path, upstream)
-	if err != nil {
-		slog.Error("failed to load anibridge mapping", "error", err)
-		return
-	}
-	s.resolver.SetMapping(m)
 }
 
 func (s *Scheduler) refreshMapping(ctx context.Context) {
