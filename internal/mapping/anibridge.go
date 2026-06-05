@@ -146,7 +146,12 @@ func LoadOrFetch(ctx context.Context, path, url string) (*AnibridgeMapping, Meta
 		slog.Info("anibridge mapping is unchanged (MD5 match), refreshing in-memory only")
 		m, parseErr := parseAnibridgeFile(path)
 		if parseErr == nil {
-			return m, meta, nil
+			// Update metadata with current ETag so the next HEAD
+			// request sees a match and avoids re-download.
+			if err := WriteMetadata(metaPath(path), newMeta); err != nil {
+				slog.Warn("failed to update anibridge sidecar metadata", "error", err)
+			}
+			return m, newMeta, nil
 		}
 	}
 
@@ -343,13 +348,13 @@ func parseAnibridgeBytes(data []byte) (*AnibridgeMapping, error) {
 	return parseAnibridgeJSON(zr, "<bytes>")
 }
 
-func writeAnibridgeFile(path string, data []byte) error {
+func writeFileAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create anibridge directory: %w", err)
+		return fmt.Errorf("create directory: %w", err)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("create temp anibridge file: %w", err)
+		return fmt.Errorf("create temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
 	cleanup := true
@@ -361,16 +366,20 @@ func writeAnibridgeFile(path string, data []byte) error {
 
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return fmt.Errorf("write anibridge file: %w", err)
+		return fmt.Errorf("write file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close anibridge file: %w", err)
+		return fmt.Errorf("close file: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("rename anibridge file: %w", err)
+		return fmt.Errorf("rename file: %w", err)
 	}
 	cleanup = false
 	return nil
+}
+
+func writeAnibridgeFile(path string, data []byte) error {
+	return writeFileAtomic(path, data)
 }
 
 func metaPath(mappingPath string) string {
@@ -396,36 +405,11 @@ func ReadMetadata(path string) (Metadata, error) {
 
 // WriteMetadata atomically writes sidecar metadata to disk.
 func WriteMetadata(path string, m Metadata) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create anibridge metadata directory: %w", err)
-	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal anibridge metadata: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("create temp anibridge metadata: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write anibridge metadata: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close anibridge metadata: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("rename anibridge metadata: %w", err)
-	}
-	cleanup = false
-	return nil
+	return writeFileAtomic(path, data)
 }
 
 func parseAnibridgeJSON(r io.Reader, src string) (*AnibridgeMapping, error) {

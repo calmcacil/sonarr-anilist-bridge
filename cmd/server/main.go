@@ -58,7 +58,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/list", handleList(db, sched, cfg))
-	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/health", handleHealth(db))
 	mux.HandleFunc("/cache/stats", handleCacheStats(db))
 
 	server := &http.Server{
@@ -72,6 +72,11 @@ func run() error {
 	sched.StartBackground(ctx)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic in HTTP server goroutine", "recover", r)
+			}
+		}()
 		slog.Info("listening", "addr", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
@@ -96,6 +101,12 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 		season := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("season")))
 		if season == "" {
 			season = "ALL"
+		}
+
+		validSeasons := map[string]bool{"WINTER": true, "SPRING": true, "SUMMER": true, "FALL": true, "ALL": true}
+		if !validSeasons[season] {
+			http.Error(w, "invalid season parameter", http.StatusBadRequest)
+			return
 		}
 
 		yearStr := r.URL.Query().Get("year")
@@ -150,6 +161,11 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 				"category", category,
 			)
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("panic in stale refresh goroutine", "season", season, "year", year, "category", category, "recover", r)
+					}
+				}()
 				if err := sched.Refresh(context.WithoutCancel(r.Context()), season, year, category); err != nil {
 					slog.Error("stale refresh failed", "season", season, "year", year, "category", category, "error", err)
 				}
@@ -160,9 +176,21 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 	}
 }
 
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+func handleHealth(db *cache.Cache) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		healthy := true
+		if err := db.Ping(); err != nil {
+			slog.Error("health check failed", "error", err)
+			healthy = false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if healthy {
+			w.Write([]byte(`{"status":"ok"}`))
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"unhealthy"}`))
+		}
+	}
 }
 
 func handleCacheStats(db *cache.Cache) http.HandlerFunc {
@@ -230,7 +258,7 @@ func setupLogging(level string) {
 	switch strings.ToLower(level) {
 	case "debug":
 		l = slog.LevelDebug
-	case "warn":
+	case "warn", "warning":
 		l = slog.LevelWarn
 	case "error":
 		l = slog.LevelError

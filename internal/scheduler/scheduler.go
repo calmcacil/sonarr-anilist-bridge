@@ -54,6 +54,11 @@ func (s *Scheduler) LoadResolver() {
 // block; the caller should Prewarm synchronously before calling this.
 func (s *Scheduler) StartBackground(ctx context.Context) {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic in stale refresh background worker", "recover", r)
+			}
+		}()
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 
@@ -69,6 +74,11 @@ func (s *Scheduler) StartBackground(ctx context.Context) {
 	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic in mapping refresh background worker", "recover", r)
+			}
+		}()
 		mapTicker := time.NewTicker(time.Duration(s.cfg.AnibridgeRefreshDays) * 24 * time.Hour)
 		defer mapTicker.Stop()
 
@@ -123,9 +133,17 @@ func (s *Scheduler) FetchAndStore(ctx context.Context, season string, year int, 
 		return fmt.Errorf("set pending marker: %w", err)
 	}
 	if !inserted {
+		// Entry already exists (pending or cached). The background
+		// refresh loop will retry stale pending entries, so no
+		// need to fire off a duplicate fetch.
 		return nil
 	}
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic in backfill refresh", "season", season, "year", year, "category", category, "recover", r)
+			}
+		}()
 		if err := s.refresh(context.WithoutCancel(ctx), season, year, category); err != nil {
 			slog.Error("backfill refresh failed", "season", season, "year", year, "category", category, "error", err)
 		}
@@ -146,7 +164,11 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 	}
 
 	for _, ssn := range seasons {
-		shows := s.processSeason(ctx, ssn, year, formats, category)
+		shows, err := s.processSeason(ctx, ssn, year, formats, category)
+		if err != nil {
+			slog.Error("season fetch failed", "season", ssn, "year", year, "error", err)
+			continue
+		}
 		allShows = append(allShows, shows...)
 	}
 
@@ -163,13 +185,12 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 	return nil
 }
 
-func (s *Scheduler) processSeason(ctx context.Context, season string, year int, formats []string, category string) []Show {
+func (s *Scheduler) processSeason(ctx context.Context, season string, year int, formats []string, category string) ([]Show, error) {
 	slog.Info("fetching season", "season", season, "year", year)
 
 	shows, err := s.client.FetchSeason(ctx, season, year, s.cfg.MaxPerSeason, formats)
 	if err != nil {
-		slog.Error("fetch failed", "season", season, "year", year, "error", err)
-		return nil
+		return nil, fmt.Errorf("fetch season %s %d: %w", season, year, err)
 	}
 
 	if s.cfg.WinterOverflow && season == "WINTER" {
@@ -183,7 +204,6 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 	shows = filterSeries(shows)
 
 	shows = filter.Filter(shows, filter.Config{
-		Blacklist:   nil,
 		ExcludeTags: s.cfg.ExcludeTags,
 	})
 	shows = filter.FilterFuture(shows, s.cfg.AheadMonthsOrDefault())
@@ -192,7 +212,7 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 		shows = filterFirstSeason(shows)
 	}
 
-	return s.resolveShows(shows)
+	return s.resolveShows(shows), nil
 }
 
 func (s *Scheduler) fetchWinterOverflow(ctx context.Context, year int, formats []string, shows []anilist.Show) []anilist.Show {
@@ -227,10 +247,10 @@ func (s *Scheduler) fetchWinterOverflow(ctx context.Context, year int, formats [
 func (s *Scheduler) resolveShows(shows []anilist.Show) []Show {
 	if s.resolver == nil {
 		slog.Warn("resolver not yet loaded, skipping resolution")
-		return nil
+		return make([]Show, 0)
 	}
 	resolved := s.resolver.ResolveBatch(shows)
-	var out []Show
+	out := make([]Show, 0)
 	for _, show := range shows {
 		if r, ok := resolved[show.ID]; ok && r.Resolved {
 			out = append(out, Show{TVDBID: r.TVDBID, Title: r.Title})

@@ -193,10 +193,10 @@ func TestExists(t *testing.T) {
 		t.Error("expected false before Set")
 	}
 
-	c.SetEmpty("WINTER", 2026, "series")
+	c.SetEmptyIfNotExists("WINTER", 2026, "series")
 
 	if !c.Exists("WINTER", 2026, "series") {
-		t.Error("expected true after SetEmpty")
+		t.Error("expected true after SetEmptyIfNotExists")
 	}
 }
 
@@ -288,7 +288,7 @@ func TestConcurrentCacheAccess(t *testing.T) {
 			defer wg.Done()
 			c.Set("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`))
 			c.Get("WINTER", 2026, "series")
-			c.SetEmpty("SPRING", 2026, "series")
+			c.SetEmptyIfNotExists("SPRING", 2026, "series")
 			c.Get("SPRING", 2026, "series")
 			c.Stats()
 		}()
