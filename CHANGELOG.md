@@ -54,6 +54,6 @@ version bump and GitHub Release with auto-generated notes.
 
 - `internal/mapping/community.go` — old shinkro YAML loader.
 
-[1.0.0]: https://github.com/calmcacil/sonarr-anilist-bridge/releases/tag/v1.0.0
-[1.0.2]: https://github.com/calmcacil/sonarr-anilist-bridge/releases/tag/v1.0.2
-[1.0.3]: https://github.com/calmcacil/sonarr-anilist-bridge/releases/tag/v1.0.3
+[1.0.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.0
+[1.0.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.2
+[1.0.3]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.3

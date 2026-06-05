@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/calmcacil/anilistgen/internal/cache"
-	"github.com/calmcacil/anilistgen/internal/config"
-	"github.com/calmcacil/anilistgen/internal/scheduler"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/cache"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/config"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/scheduler"
 )
 
 func main() {

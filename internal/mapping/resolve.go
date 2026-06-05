@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/calmcacil/anilistgen/internal/anilist"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
 )
 
 // ResolvedShow is the per-show resolution result handed back to the

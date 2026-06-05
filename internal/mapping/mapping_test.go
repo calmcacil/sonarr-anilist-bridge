@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calmcacil/anilistgen/internal/anilist"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
 	"github.com/klauspost/compress/zstd"
 )
 
