@@ -63,7 +63,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      mux,
+		Handler:      loggingMiddleware(recoveryMiddleware(mux)),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
@@ -102,7 +102,14 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 		year := time.Now().Year()
 		if yearStr != "" {
 			if y, err := strconv.Atoi(yearStr); err == nil && y > 0 {
-				year = y
+				// Clamp to ±10 years to prevent excessive queries
+				if y < year-10 {
+					year = year - 10
+				} else if y > year+10 {
+					year = year + 10
+				} else {
+					year = y
+				}
 			}
 		}
 
@@ -114,7 +121,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 			category = "series"
 		}
 
-		data, _, isPending, ok := db.Get(season, year, category)
+		data, fresh, isPending, ok := db.Get(season, year, category)
 		if !ok {
 			slog.Info("cache miss, triggering backfill",
 				"season", season,
@@ -135,6 +142,20 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 			return
 		}
 
+		// Stale data triggers proactive refresh; caller still gets cached response.
+		if !fresh {
+			slog.Debug("serving stale data, triggering refresh",
+				"season", season,
+				"year", year,
+				"category", category,
+			)
+			go func() {
+				if err := sched.Refresh(context.WithoutCancel(r.Context()), season, year, category); err != nil {
+					slog.Error("stale refresh failed", "season", season, "year", year, "category", category, "error", err)
+				}
+			}()
+		}
+
 		writeJSON(w, data)
 	}
 }
@@ -147,14 +168,61 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 func handleCacheStats(db *cache.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		stats := db.Stats()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(stats)
+		data, err := json.Marshal(stats)
+		if err != nil {
+			slog.Error("marshal cache stats", "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, data)
 	}
 }
 
 func writeJSON(w http.ResponseWriter, data []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(data)
+}
+
+// loggingMiddleware logs the method, path, status, and duration of each request.
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		srw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(srw, r)
+		slog.Debug("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", srw.status,
+			"duration", time.Since(start),
+		)
+	})
+}
+
+// recoveryMiddleware catches panics in downstream handlers and returns 500.
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rc := recover(); rc != nil {
+				slog.Error("panic recovered",
+					"path", r.URL.Path,
+					"error", rc,
+				)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// statusResponseWriter wraps http.ResponseWriter to capture the status code.
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (srw *statusResponseWriter) WriteHeader(code int) {
+	srw.status = code
+	srw.ResponseWriter.WriteHeader(code)
 }
 
 func setupLogging(level string) {

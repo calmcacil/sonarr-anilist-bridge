@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -214,4 +215,83 @@ func TestStats(t *testing.T) {
 	if stats.Entries != 2 {
 		t.Errorf("entries = %d, want 2", stats.Entries)
 	}
+}
+
+func TestSetEmptyIfNotExists_InsertsOnlyOnce(t *testing.T) {
+	t.Parallel()
+
+	c, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	inserted, err := c.SetEmptyIfNotExists("WINTER", 2026, "series")
+	if err != nil {
+		t.Fatalf("first SetEmptyIfNotExists: %v", err)
+	}
+	if !inserted {
+		t.Error("expected first call to return inserted=true")
+	}
+
+	inserted, err = c.SetEmptyIfNotExists("WINTER", 2026, "series")
+	if err != nil {
+		t.Fatalf("second SetEmptyIfNotExists: %v", err)
+	}
+	if inserted {
+		t.Error("expected second call to return inserted=false")
+	}
+}
+
+func TestSetEmptyIfNotExists_DoesNotReplaceRealData(t *testing.T) {
+	t.Parallel()
+
+	c, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	realData := []byte(`[{"tvdbId":123}]`)
+	if err := c.Set("SPRING", 2026, "series", realData); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	inserted, err := c.SetEmptyIfNotExists("SPRING", 2026, "series")
+	if err != nil {
+		t.Fatalf("SetEmptyIfNotExists: %v", err)
+	}
+	if inserted {
+		t.Error("expected false when entry already has real data")
+	}
+
+	data, _, _, ok := c.Get("SPRING", 2026, "series")
+	if !ok {
+		t.Fatal("expected hit")
+	}
+	if string(data) != string(realData) {
+		t.Errorf("expected real data to be preserved, got %q", data)
+	}
+}
+
+func TestConcurrentCacheAccess(t *testing.T) {
+	c, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.Set("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`))
+			c.Get("WINTER", 2026, "series")
+			c.SetEmpty("SPRING", 2026, "series")
+			c.Get("SPRING", 2026, "series")
+			c.Stats()
+		}()
+	}
+	wg.Wait()
 }

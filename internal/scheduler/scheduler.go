@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/calmcacil/sonarr-anime-bridge/internal/mapping"
 )
 
-const mappingRefreshInterval = 1 * time.Hour
 
 type Scheduler struct {
 	cache    *cache.Cache
@@ -31,7 +31,7 @@ func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 	return &Scheduler{
 		cache:  c,
 		cfg:    cfg,
-		client: anilist.New(),
+		client: anilist.NewWithTimeout(time.Duration(cfg.AniListTimeoutMin) * time.Minute),
 		resolver: mapping.NewResolver(),
 	}
 }
@@ -41,7 +41,7 @@ func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 func (s *Scheduler) LoadResolver() {
 	path := s.cfg.AnibridgeMappingPath
 	upstream := s.cfg.AnibridgeURL
-	m, _, err := mapping.LoadOrFetch(path, upstream)
+	m, _, err := mapping.LoadOrFetch(context.Background(), path, upstream)
 	if err != nil {
 		slog.Error("failed to load anibridge mapping", "error", err)
 		return
@@ -69,7 +69,7 @@ func (s *Scheduler) StartBackground(ctx context.Context) {
 	}()
 
 	go func() {
-		mapTicker := time.NewTicker(mappingRefreshInterval)
+		mapTicker := time.NewTicker(time.Duration(s.cfg.AnibridgeRefreshDays) * 24 * time.Hour)
 		defer mapTicker.Stop()
 
 		for {
@@ -84,19 +84,16 @@ func (s *Scheduler) StartBackground(ctx context.Context) {
 }
 
 func (s *Scheduler) refreshMapping(ctx context.Context) {
-	_ = ctx
-	path := s.cfg.AnibridgeMappingPath
-	upstream := s.cfg.AnibridgeURL
-	m, meta, err := mapping.LoadOrFetch(path, upstream)
+	m, _, err := mapping.LoadOrFetch(ctx, s.cfg.AnibridgeMappingPath, s.cfg.AnibridgeURL)
 	if err != nil {
 		slog.Warn("anibridge mapping refresh failed, keeping current mapping", "error", err)
 		return
 	}
 	s.resolver.SetMapping(m)
-	_ = meta
 }
 
 func (s *Scheduler) Prewarm(ctx context.Context) error {
+	var firstErr error
 	for _, year := range s.cfg.PrewarmYears {
 		for _, season := range s.cfg.PrewarmSeasons {
 			for _, category := range []string{"series", "series-new"} {
@@ -104,61 +101,69 @@ func (s *Scheduler) Prewarm(ctx context.Context) error {
 					continue
 				}
 				slog.Info("prewarming", "season", season, "year", year, "category", category)
-				s.refresh(ctx, season, year, category)
+				if err := s.refresh(ctx, season, year, category); err != nil {
+					slog.Error("prewarm failed", "season", season, "year", year, "category", category, "error", err)
+					if firstErr == nil {
+						firstErr = err
+					}
+				}
 			}
 		}
 	}
-	return nil
+	return firstErr
 }
 
-func (s *Scheduler) Refresh(ctx context.Context, season string, year int, category string) {
-	s.refresh(ctx, season, year, category)
+func (s *Scheduler) Refresh(ctx context.Context, season string, year int, category string) error {
+	return s.refresh(ctx, season, year, category)
 }
 
 func (s *Scheduler) FetchAndStore(ctx context.Context, season string, year int, category string) error {
-	if s.cache.Exists(season, year, category) {
+	inserted, err := s.cache.SetEmptyIfNotExists(season, year, category)
+	if err != nil {
+		return fmt.Errorf("set pending marker: %w", err)
+	}
+	if !inserted {
 		return nil
 	}
-	s.cache.SetEmpty(season, year, category)
-	go s.refresh(context.WithoutCancel(ctx), season, year, category)
+	go func() {
+		if err := s.refresh(context.WithoutCancel(ctx), season, year, category); err != nil {
+			slog.Error("backfill refresh failed", "season", season, "year", year, "category", category, "error", err)
+		}
+	}()
 	return nil
 }
 
-func (s *Scheduler) refresh(ctx context.Context, season string, year int, category string) {
+func (s *Scheduler) refresh(ctx context.Context, season string, year int, category string) error {
 	seasons := []string{season}
 	if season == "ALL" {
 		seasons = config.AllSeasons()
 	}
 
-	var allShows []Show
+	allShows := make([]Show, 0)
 	formats := []string{"TV"}
 	if s.cfg.IncludeONA {
 		formats = append(formats, "ONA")
 	}
 
 	for _, ssn := range seasons {
-		shows := s.processSeason(ctx, ssn, year, formats)
-		if category == "series-new" {
-			shows = filterNew(shows)
-		}
+		shows := s.processSeason(ctx, ssn, year, formats, category)
 		allShows = append(allShows, shows...)
 	}
 
 	data, err := json.Marshal(allShows)
 	if err != nil {
-		slog.Error("marshal shows", "season", season, "year", year, "error", err)
-		return
+		return fmt.Errorf("marshal shows: %w", err)
 	}
 
 	if err := s.cache.Set(season, year, category, data); err != nil {
-		slog.Error("cache set", "season", season, "year", year, "error", err)
-		return
+		return fmt.Errorf("cache set: %w", err)
 	}
 
 	slog.Info("cached", "season", season, "year", year, "category", category, "shows", len(allShows))
+	return nil
 }
 
-func (s *Scheduler) processSeason(ctx context.Context, season string, year int, formats []string) []Show {
+func (s *Scheduler) processSeason(ctx context.Context, season string, year int, formats []string, category string) []Show {
 	slog.Info("fetching season", "season", season, "year", year)
 
 	shows, err := s.client.FetchSeason(ctx, season, year, s.cfg.MaxPerSeason, formats)
@@ -182,6 +187,10 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 		ExcludeTags: s.cfg.ExcludeTags,
 	})
 	shows = filter.FilterFuture(shows, s.cfg.AheadMonthsOrDefault())
+
+	if category == "series-new" {
+		shows = filterFirstSeason(shows)
+	}
 
 	return s.resolveShows(shows)
 }
@@ -239,11 +248,16 @@ func (s *Scheduler) refreshStale(ctx context.Context) {
 	}
 	for _, key := range keys {
 		slog.Info("refreshing stale", "season", key.Season, "year", key.Year, "category", key.Category)
-		s.refresh(ctx, key.Season, key.Year, key.Category)
+		if err := s.refresh(ctx, key.Season, key.Year, key.Category); err != nil {
+			slog.Error("stale refresh failed", "season", key.Season, "year", key.Year, "category", key.Category, "error", err)
+		}
 	}
 }
 
 func (s *Scheduler) prune(ctx context.Context) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
 	n, err := s.cache.PruneStale(s.cfg.CacheStaleDays)
 	if err != nil {
 		slog.Error("prune failed", "error", err)
@@ -264,8 +278,16 @@ func filterSeries(shows []anilist.Show) []anilist.Show {
 	return out
 }
 
-func filterNew(shows []Show) []Show {
-	return shows
+// filterFirstSeason keeps only shows that are first-season entries
+// (no PREQUEL or PARENT relations).
+func filterFirstSeason(shows []anilist.Show) []anilist.Show {
+	var out []anilist.Show
+	for _, sh := range shows {
+		if sh.IsNew() {
+			out = append(out, sh)
+		}
+	}
+	return out
 }
 
 func filterWinterMonth(shows []anilist.Show) []anilist.Show {
