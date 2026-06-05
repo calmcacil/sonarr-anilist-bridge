@@ -102,6 +102,11 @@ func Load() *Config {
 		AnibridgeURL:         getEnvStr("ALG_ANIBRIDGE_URL", DefaultAnibridgeURL),
 	}
 
+	// Clamp to minimum 1 day to prevent tight-loop ticker
+	if cfg.AnibridgeRefreshDays < 1 {
+		cfg.AnibridgeRefreshDays = 1
+	}
+
 	cfg.PrewarmYears = parseYearList("PREWARM_YEARS", []int{time.Now().Year()})
 	cfg.PrewarmSeasons = ResolveSeasons(parseStringList("PREWARM_SEASONS", []string{"all"}))
 

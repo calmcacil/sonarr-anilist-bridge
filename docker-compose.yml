@@ -5,6 +5,12 @@ services:
       - "8080:8080"
     volumes:
       - seasonal-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       # User/group to run as (default: 1000:1000)
       # Must match UID/GID of the Sonarr process for file access

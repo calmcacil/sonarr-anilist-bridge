@@ -11,7 +11,6 @@ import (
 // scheduler. Fields are kept stable so the scheduler's loop can stay the
 // same when the underlying data source changes.
 type ResolvedShow struct {
-	MALID    int
 	TVDBID   int
 	Title    string
 	Resolved bool
@@ -81,12 +80,7 @@ func (r *Resolver) Resolve(s anilist.Show) (int, bool) {
 func (r *Resolver) ResolveBatch(shows []anilist.Show) map[int]ResolvedShow {
 	result := make(map[int]ResolvedShow, len(shows))
 	for _, show := range shows {
-		malID := 0
-		if show.IDMal != nil {
-			malID = *show.IDMal
-		}
 		rs := ResolvedShow{
-			MALID: malID,
 			Title: show.DisplayTitle(),
 		}
 		if tvdbID, ok := r.Resolve(show); ok {
