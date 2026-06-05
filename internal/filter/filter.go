@@ -2,39 +2,25 @@ package filter
 
 import (
 	"log/slog"
-	"strconv"
-	"strings"
 
 	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
 )
 
 type Config struct {
-	Blacklist   []string
 	ExcludeTags []string
 }
 
-// Filter removes shows with short duration, matching blacklist entries, or
-// excluded content tags. Returns the filtered slice.
+// Filter removes shows with short duration or excluded content tags.
+// Returns the filtered slice.
 func Filter(shows []anilist.Show, cfg Config) []anilist.Show {
 	var filtered []anilist.Show
 	for _, show := range shows {
 		title := show.DisplayTitle()
-		idMal := 0
-		if show.IDMal != nil {
-			idMal = *show.IDMal
-		}
 
 		if show.SkipByDuration() {
 			slog.Debug("skipped show (duration <= 10 min)",
 				"title", title,
 				"duration", show.Duration)
-			continue
-		}
-
-		if isBlacklisted(title, idMal, cfg.Blacklist) {
-			slog.Debug("skipped show (blacklisted)",
-				"title", title,
-				"idMal", idMal)
 			continue
 		}
 
@@ -57,24 +43,6 @@ func Filter(shows []anilist.Show, cfg Config) []anilist.Show {
 	}
 
 	return filtered
-}
-
-func isBlacklisted(title string, idMal int, blacklist []string) bool {
-	for _, entry := range blacklist {
-		if entry == "" {
-			continue
-		}
-		if malID, err := strconv.Atoi(entry); err == nil && malID > 0 {
-			if malID == idMal {
-				return true
-			}
-			continue
-		}
-		if strings.Contains(strings.ToLower(title), strings.ToLower(entry)) {
-			return true
-		}
-	}
-	return false
 }
 
 func hasExcludedTag(show anilist.Show, tags []string) bool {

@@ -329,7 +329,11 @@ func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 	for attempt := range maxRetry {
 		if attempt > 0 {
 			// Exponential backoff: 2s, 4s, 8s, 16s (+ jitter)
-			time.Sleep(jitter(time.Duration(1<<attempt) * time.Second))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(jitter(time.Duration(1<<attempt) * time.Second)):
+			}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase,
@@ -354,7 +358,11 @@ func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 			if retryAfter != "" {
 				if sec, err := strconv.Atoi(retryAfter); err == nil && sec > 0 {
 					slog.Warn("rate limited, waiting retry-after", "seconds", sec)
-					time.Sleep(time.Duration(sec) * time.Second)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(time.Duration(sec) * time.Second):
+					}
 				}
 			}
 			lastErr = fmt.Errorf("rate limited (attempt %d)", attempt+1)

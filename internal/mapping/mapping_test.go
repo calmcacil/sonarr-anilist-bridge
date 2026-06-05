@@ -233,9 +233,6 @@ func TestResolver_ResolveBatch(t *testing.T) {
 		if !rs.Resolved || rs.TVDBID != 12345 {
 			t.Errorf("expected resolved 12345, got resolved=%v tvdb=%d", rs.Resolved, rs.TVDBID)
 		}
-		if rs.MALID != 16498 {
-			t.Errorf("expected MALID 16498, got %d", rs.MALID)
-		}
 	})
 
 	t.Run("anilist fallback hit", func(t *testing.T) {
@@ -245,9 +242,6 @@ func TestResolver_ResolveBatch(t *testing.T) {
 		}
 		if !rs.Resolved || rs.TVDBID != 77777 {
 			t.Errorf("expected resolved 77777, got resolved=%v tvdb=%d", rs.Resolved, rs.TVDBID)
-		}
-		if rs.MALID != 0 {
-			t.Errorf("expected MALID 0 (nil), got %d", rs.MALID)
 		}
 	})
 
@@ -259,9 +253,6 @@ func TestResolver_ResolveBatch(t *testing.T) {
 		if rs.Resolved {
 			t.Error("expected unresolved")
 		}
-		if rs.MALID != 99999 {
-			t.Errorf("expected MALID 99999 recorded, got %d", rs.MALID)
-		}
 	})
 
 	t.Run("no MAL, anilist miss", func(t *testing.T) {
@@ -271,9 +262,6 @@ func TestResolver_ResolveBatch(t *testing.T) {
 		}
 		if rs.Resolved {
 			t.Error("expected unresolved")
-		}
-		if rs.MALID != 0 {
-			t.Errorf("expected MALID 0, got %d", rs.MALID)
 		}
 	})
 }

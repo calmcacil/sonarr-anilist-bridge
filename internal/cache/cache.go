@@ -10,7 +10,10 @@ import (
 )
 
 type Cache struct {
-	db *sql.DB
+	db                 *sql.DB
+	freshnessThreshold time.Duration
+	hits               atomic.Int64
+	misses             atomic.Int64
 }
 
 type CacheKey struct {
@@ -25,10 +28,7 @@ type CacheStats struct {
 	Misses  int64
 }
 
-var (
-	hits   atomic.Int64
-	misses atomic.Int64
-)
+
 
 func Open(path string) (*Cache, error) {
 	db, err := sql.Open("sqlite", path)
@@ -59,7 +59,7 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("create table: %w", err)
 	}
 
-	return &Cache{db: db}, nil
+	return &Cache{db: db, freshnessThreshold: 24 * time.Hour}, nil
 }
 
 func (c *Cache) Close() error {
@@ -77,11 +77,11 @@ func (c *Cache) Get(season string, year int, category string) (data []byte, fres
 	).Scan(&raw, &isEmpty, &fetchedAt)
 
 	if err != nil {
-		misses.Add(1)
+		c.misses.Add(1)
 		return nil, false, false, false
 	}
 
-	hits.Add(1)
+	c.hits.Add(1)
 
 	// Update last_hit
 	c.db.Exec(
@@ -93,7 +93,7 @@ func (c *Cache) Get(season string, year int, category string) (data []byte, fres
 		return nil, false, true, true
 	}
 
-	fresh = time.Since(time.Unix(fetchedAt, 0)) < 24*time.Hour
+	fresh = time.Since(time.Unix(fetchedAt, 0)) < c.freshnessThreshold
 	return raw, fresh, false, true
 }
 
@@ -137,14 +137,6 @@ func (c *Cache) SetEmptyIfNotExists(season string, year int, category string) (b
 	return n > 0, nil
 }
 
-func (c *Cache) MarkHit(season string, year int, category string) error {
-	_, err := c.db.Exec(
-		`UPDATE season_cache SET last_hit=? WHERE season=? AND year=? AND category=?`,
-		time.Now().Unix(), season, year, category,
-	)
-	return err
-}
-
 func (c *Cache) PruneStale(staleDays int) (int, error) {
 	cutoff := time.Now().Add(-time.Duration(staleDays) * 24 * time.Hour).Unix()
 	result, err := c.db.Exec(
@@ -159,7 +151,8 @@ func (c *Cache) PruneStale(staleDays int) (int, error) {
 }
 
 func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDays int) ([]CacheKey, error) {
-	rows, err := c.db.Query(`SELECT season, year, category, fetched_at FROM season_cache WHERE is_empty = 0`)
+	stalePendingCutoff := time.Now().Add(-1 * time.Hour).Unix()
+	rows, err := c.db.Query(`SELECT season, year, category, fetched_at, is_empty FROM season_cache WHERE is_empty = 0 OR (is_empty = 1 AND fetched_at < ?)`, stalePendingCutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +164,15 @@ func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDay
 	for rows.Next() {
 		var key CacheKey
 		var fetchedAt int64
-		if err := rows.Scan(&key.Season, &key.Year, &key.Category, &fetchedAt); err != nil {
+		var isEmpty int
+		if err := rows.Scan(&key.Season, &key.Year, &key.Category, &fetchedAt, &isEmpty); err != nil {
 			return nil, err
+		}
+
+		// Always retry stale pending entries (failed backfills) older than 1 hour
+		if isEmpty == 1 {
+			keys = append(keys, key)
+			continue
 		}
 
 		ttl := time.Duration(pastRefreshDays) * 24 * time.Hour
@@ -198,7 +198,11 @@ func (c *Cache) Exists(season string, year int, category string) bool {
 }
 
 func (c *Cache) Stats() CacheStats {
-	stats := CacheStats{Hits: hits.Load(), Misses: misses.Load()}
+	stats := CacheStats{Hits: c.hits.Load(), Misses: c.misses.Load()}
 	c.db.QueryRow(`SELECT COUNT(*) FROM season_cache`).Scan(&stats.Entries)
 	return stats
+}
+
+func (c *Cache) Ping() error {
+	return c.db.Ping()
 }

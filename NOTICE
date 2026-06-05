@@ -7,3 +7,15 @@ This project includes data from anibridge/anibridge-mappings:
   Copyright (c) 2025-present anibridge contributors
   Licensed under the MIT License.
   https://github.com/anibridge/anibridge-mappings
+
+This project includes software from:
+
+  modernc.org/sqlite
+  Copyright (c) 2017 The Sqlite Authors
+  Licensed under the MIT License.
+  https://gitlab.com/cznic/sqlite
+
+  github.com/klauspost/compress
+  Copyright (c) 2019 Klaus Post
+  Licensed under the BSD-3-Clause License.
+  https://github.com/klauspost/compress

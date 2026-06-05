@@ -28,37 +28,6 @@ func TestFilter_SkipsShortDuration(t *testing.T) {
 	}
 }
 
-func TestFilter_BlacklistByMALID(t *testing.T) {
-	t.Parallel()
-
-	shows := []anilist.Show{
-		{IDMal: makePtr(16498), Title: anilist.Title{English: makePtr("Good Show")}},
-		{IDMal: makePtr(99999), Title: anilist.Title{English: makePtr("Bad Show")}},
-	}
-
-	result := Filter(shows, Config{Blacklist: []string{"99999"}})
-	if len(result) != 1 {
-		t.Fatalf("expected 1 show, got %d", len(result))
-	}
-	if *result[0].IDMal != 16498 {
-		t.Errorf("expected MAL 16498 to remain, got %d", *result[0].IDMal)
-	}
-}
-
-func TestFilter_BlacklistByTitle(t *testing.T) {
-	t.Parallel()
-
-	shows := []anilist.Show{
-		{Title: anilist.Title{English: makePtr("One Piece")}},
-		{Title: anilist.Title{English: makePtr("Naruto")}},
-	}
-
-	result := Filter(shows, Config{Blacklist: []string{"One Piece"}})
-	if len(result) != 1 {
-		t.Fatalf("expected 1 show, got %d", len(result))
-	}
-}
-
 func TestFilter_ExcludeTags(t *testing.T) {
 	t.Parallel()
 
@@ -112,23 +81,6 @@ func TestFilterFuture_NoLimit(t *testing.T) {
 	result := FilterFuture(shows, 0)
 	if len(result) != 1 {
 		t.Errorf("expected 1 show when months=0, got %d", len(result))
-	}
-}
-
-func TestIsBlacklisted(t *testing.T) {
-	t.Parallel()
-
-	if !isBlacklisted("One Piece", 0, []string{"One Piece"}) {
-		t.Error("expected title match")
-	}
-	if !isBlacklisted("anything", 16498, []string{"16498"}) {
-		t.Error("expected MAL ID match")
-	}
-	if isBlacklisted("Naruto", 0, []string{"One Piece"}) {
-		t.Error("expected no match")
-	}
-	if isBlacklisted("anything", 0, []string{"", "16498"}) {
-		t.Error("empty entry should be skipped")
 	}
 }
 
