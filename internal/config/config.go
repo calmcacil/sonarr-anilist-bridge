@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+const (
+	DefaultAnibridgeMappingPath = "/data/anibridge_mappings.json.zst"
+	DefaultAnibridgeURL         = "https://github.com/anibridge/anibridge-mappings/releases/download/v3/mappings.json.zst"
+	DefaultAnibridgeRefreshDays = 1
+)
+
 type Config struct {
 	Port               int
 	PrewarmYears       []int
@@ -22,6 +28,10 @@ type Config struct {
 	RefreshPastDays    int
 	AniListTimeoutMin  int
 	LogLevel           string
+
+	AnibridgeMappingPath string
+	AnibridgeRefreshDays int
+	AnibridgeURL         string
 }
 
 const (
@@ -34,13 +44,10 @@ const (
 	DefaultAniListTimeoutMin  = 10
 )
 
-// AllSeasons returns the four standard anime seasons.
 func AllSeasons() []string {
 	return []string{"WINTER", "SPRING", "SUMMER", "FALL"}
 }
 
-// ResolveSeasons normalizes season strings to uppercase AniList season codes.
-// Returns all four seasons if input is empty or contains "all".
 func ResolveSeasons(raw []string) []string {
 	if len(raw) == 0 {
 		return AllSeasons()
@@ -70,7 +77,6 @@ func ResolveSeasons(raw []string) []string {
 	return out
 }
 
-// AheadMonthsOrDefault returns the ahead_months value, defaulting to 3.
 func (c *Config) AheadMonthsOrDefault() int {
 	if c.AheadMonths != nil {
 		return *c.AheadMonths
@@ -78,7 +84,6 @@ func (c *Config) AheadMonthsOrDefault() int {
 	return 3
 }
 
-// Load reads configuration from environment variables.
 func Load() *Config {
 	cfg := &Config{
 		Port:               getEnvInt("PORT", DefaultPort),
@@ -91,6 +96,10 @@ func Load() *Config {
 		RefreshPastDays:    getEnvInt("REFRESH_PAST_DAYS", DefaultRefreshPastDays),
 		AniListTimeoutMin:  getEnvInt("ALG_ANILIST_TIMEOUT_MINUTES", DefaultAniListTimeoutMin),
 		LogLevel:           getEnvStr("LOG_LEVEL", "info"),
+
+		AnibridgeMappingPath: getEnvStr("ALG_ANIBRIDGE_MAPPING_PATH", DefaultAnibridgeMappingPath),
+		AnibridgeRefreshDays: getEnvInt("ALG_ANIBRIDGE_REFRESH_DAYS", DefaultAnibridgeRefreshDays),
+		AnibridgeURL:         getEnvStr("ALG_ANIBRIDGE_URL", DefaultAnibridgeURL),
 	}
 
 	cfg.PrewarmYears = parseYearList("PREWARM_YEARS", []int{time.Now().Year()})
@@ -101,7 +110,6 @@ func Load() *Config {
 			cfg.AheadMonths = &m
 		}
 	}
-	// legacy env var
 	if aheadStr := os.Getenv("ALG_ANILIST_AHEAD_MONTHS"); aheadStr != "" && cfg.AheadMonths == nil {
 		if m, err := strconv.Atoi(aheadStr); err == nil && m >= 0 {
 			cfg.AheadMonths = &m
