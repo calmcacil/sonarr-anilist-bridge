@@ -16,8 +16,8 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  release:
-    if: github.event_name == 'workflow_dispatch'
+  version:
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -39,7 +39,7 @@ jobs:
       - name: Determine version
         id: svu
         run: |
-          BUMP="${{ inputs.version_bump }}"
+          BUMP="${{ inputs.version_bump || 'auto' }}"
           if [ "$BUMP" = "auto" ]; then
             TAG=$(svu next)
           else
@@ -48,15 +48,21 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Releasing $TAG"
 
-      - name: Create GitHub Release
+      - name: Create tag and release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.svu.outputs.tag }}" \
-            --title "${{ steps.svu.outputs.tag }}" \
-            --generate-notes
+          TAG="${{ steps.svu.outputs.tag }}"
+          git tag "$TAG" || true
+          git push origin "$TAG" || true
+          gh release create "$TAG" \
+            --target "${{ github.sha }}" \
+            --title "$TAG" \
+            --generate-notes || true
 
   build:
+    needs: version
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -101,6 +107,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha
+            type=raw,value=${{ needs.version.outputs.tag }},enable=${{ needs.version.outputs.tag != '' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
