@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/calmcacil/anilistgen/internal/anilist"
-	"github.com/calmcacil/anilistgen/internal/cache"
-	"github.com/calmcacil/anilistgen/internal/config"
-	"github.com/calmcacil/anilistgen/internal/filter"
-	"github.com/calmcacil/anilistgen/internal/mapping"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/cache"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/config"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/filter"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/mapping"
 )
 
 const mappingRefreshInterval = 1 * time.Hour

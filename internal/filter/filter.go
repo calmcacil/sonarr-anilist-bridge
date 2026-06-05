@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calmcacil/anilistgen/internal/anilist"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
 )
 
 type Config struct {

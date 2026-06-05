@@ -1,4 +1,4 @@
-module github.com/calmcacil/anilistgen
+module github.com/calmcacil/sonarr-anime-bridge
 
 go 1.25.0
 

@@ -3,7 +3,7 @@ package filter
 import (
 	"testing"
 
-	"github.com/calmcacil/anilistgen/internal/anilist"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
 )
 
 func makePtr[T any](v T) *T {
