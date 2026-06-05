@@ -12,6 +12,16 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [1.0.5] — 2026-06-05
+
+### Fixed
+resolve all code review findings (#4)
+
+### Documentation
+sync README and specs to current architecture
+add project AGENTS.md with PR regression check instructions
+
 ## [1.0.4] — 2026-06-05
 
 ### Fixed
@@ -67,3 +77,4 @@ rename repo to sonarr-anime-bridge
 [1.0.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.2
 [1.0.3]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.3
 [1.0.4]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.4
+[1.0.5]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.5
