@@ -73,11 +73,11 @@ jobs:
                 test) LABEL="Testing" ;;
                 chore) LABEL="Miscellaneous" ;;
               esac
-              COMMITS=$(git log "${LAST}..HEAD" --oneline --format="- %s" 2>/dev/null \
-                | grep -iE "^$group(\\(.*\\))?:" || true)
-              if [ -n "$COMMITS" ]; then
-                echo "### $LABEL"
-                echo "$COMMITS" | sed -E "s/^$group(\\(.*\\))?://i" | sed 's/^ *//'
+            COMMITS=$(git log "${LAST}..HEAD" --oneline --format="%s" 2>/dev/null \
+              | grep -iE "^$group(\\(.*\\))?:" || true)
+            if [ -n "$COMMITS" ]; then
+              echo "### $LABEL"
+              echo "$COMMITS" | sed -E "s/^$group(\\(.*\\))?: *//i; s/ *\[skip ci\]//; s/ *\[ci skip\]//"
                 echo ""
               fi
             done
