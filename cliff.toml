@@ -1,0 +1,35 @@
+[changelog]
+# Template for individual versions
+body = """
+{% if version %}\n## [{{ version | trim_start_matches(pat="v") }}] — {{ timestamp | date(format="%Y-%m-%d") }}\n{% else %}\n## [Unreleased]\n{% endif %}
+
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | upper_first }}{% if commit.breaking %} [breaking]{% endif %}
+{% endfor %}
+{% endfor %}
+{% if previous %}
+\n[{{ version | trim_start_matches(pat="v") }}]: https://github.com/calmcacil/sonarr-anilist-bridge/releases/tag/{{ version }}
+{% endif %}
+"""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = true
+
+commit_preprocessors = [
+  { pattern = "^\\((.+)\\)", replace = "" },
+  { pattern = "^(.+):\\s*", replace = "" },
+]
+
+[git.conventional_commits]
+feat = "Added"
+fix = "Fixed"
+perf = "Changed"
+refactor = "Changed"
+ci = "Changed"
+docs = "Documentation"
+test = "Testing"
+chore = "Miscellaneous"
