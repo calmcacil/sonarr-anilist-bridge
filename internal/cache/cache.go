@@ -3,6 +3,7 @@ package cache
 import (
 	"database/sql"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -25,8 +26,8 @@ type CacheStats struct {
 }
 
 var (
-	hits   int64
-	misses int64
+	hits   atomic.Int64
+	misses atomic.Int64
 )
 
 func Open(path string) (*Cache, error) {
@@ -76,11 +77,11 @@ func (c *Cache) Get(season string, year int, category string) (data []byte, fres
 	).Scan(&raw, &isEmpty, &fetchedAt)
 
 	if err != nil {
-		misses++
+		misses.Add(1)
 		return nil, false, false, false
 	}
 
-	hits++
+	hits.Add(1)
 
 	// Update last_hit
 	c.db.Exec(
@@ -106,6 +107,9 @@ func (c *Cache) Set(season string, year int, category string, data []byte) error
 	return err
 }
 
+// Deprecated: Use SetEmptyIfNotExists for concurrent-safe placeholder
+// insertion. SetEmpty uses INSERT OR REPLACE and may overwrite data that
+// another goroutine just finished writing. Kept for test compatibility.
 func (c *Cache) SetEmpty(season string, year int, category string) error {
 	now := time.Now().Unix()
 	_, err := c.db.Exec(
@@ -114,6 +118,23 @@ func (c *Cache) SetEmpty(season string, year int, category string) error {
 		season, year, category, now, now,
 	)
 	return err
+}
+
+// SetEmptyIfNotExists inserts a pending placeholder only if no entry
+// exists for this key yet. Returns (true, nil) if inserted, (false, nil)
+// if a prior call already created the entry.
+func (c *Cache) SetEmptyIfNotExists(season string, year int, category string) (bool, error) {
+	now := time.Now().Unix()
+	result, err := c.db.Exec(
+		`INSERT OR IGNORE INTO season_cache (season, year, category, data, is_empty, fetched_at, last_hit)
+		 VALUES (?, ?, ?, X'5B5D', 1, ?, ?)`,
+		season, year, category, now, now,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
 }
 
 func (c *Cache) MarkHit(season string, year int, category string) error {
@@ -177,7 +198,7 @@ func (c *Cache) Exists(season string, year int, category string) bool {
 }
 
 func (c *Cache) Stats() CacheStats {
-	stats := CacheStats{Hits: hits, Misses: misses}
+	stats := CacheStats{Hits: hits.Load(), Misses: misses.Load()}
 	c.db.QueryRow(`SELECT COUNT(*) FROM season_cache`).Scan(&stats.Entries)
 	return stats
 }

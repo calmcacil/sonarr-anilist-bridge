@@ -1,6 +1,7 @@
 package anilist
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -281,3 +282,19 @@ func TestIsWinterStart(t *testing.T) {
 func makePtr[T any](v T) *T {
 	return &v
 }
+
+func TestClient_ConcurrentThrottle(t *testing.T) {
+	t.Parallel()
+
+	c := New()
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.throttle()
+		}()
+	}
+	wg.Wait()
+}
+

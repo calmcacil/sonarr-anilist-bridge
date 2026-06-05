@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -201,15 +202,22 @@ type graphqlResponse struct {
 
 // Client fetches data from the AniList GraphQL API.
 type Client struct {
-	http           *http.Client
-	lastCall       time.Time
-	lastRateLimit  time.Time
+	http *http.Client
+
+	mu            sync.Mutex
+	lastCall      time.Time
+	lastRateLimit time.Time
 }
 
-// New creates a new AniList client.
+// New creates a new AniList client with a 30-second HTTP timeout.
 func New() *Client {
+	return NewWithTimeout(30 * time.Second)
+}
+
+// NewWithTimeout creates a new AniList client with the given HTTP timeout.
+func NewWithTimeout(timeout time.Duration) *Client {
 	return &Client{
-		http: &http.Client{Timeout: 30 * time.Second},
+		http: &http.Client{Timeout: timeout},
 	}
 }
 
@@ -226,16 +234,22 @@ func jitter(d time.Duration) time.Duration {
 // throttle ensures we don't exceed AniList rate limits.
 // After a 429 response, backs off to 5s for 30 seconds.
 func (c *Client) throttle() {
+	c.mu.Lock()
 	minDelay := rateLimitDelay
 	if time.Since(c.lastRateLimit) < 30*time.Second {
 		minDelay = rateLimitBackoff
 	}
-	minDelay = jitter(minDelay)
 	elapsed := time.Since(c.lastCall)
+	c.mu.Unlock()
+
+	minDelay = jitter(minDelay)
 	if elapsed < minDelay {
 		time.Sleep(minDelay - elapsed)
 	}
+
+	c.mu.Lock()
 	c.lastCall = time.Now()
+	c.mu.Unlock()
 }
 
 // FetchSeason returns anime for the given season, year, and formats.
@@ -309,38 +323,6 @@ func (c *Client) FetchSeason(ctx context.Context, season string, year int, maxRe
 	return allShows, nil
 }
 
-// Ping checks connectivity to the AniList API by fetching a single result.
-func (c *Client) Ping(ctx context.Context) error {
-	c.throttle()
-
-	query := `{ Page(perPage: 1) { media(type: ANIME) { id } } }`
-	payload := map[string]any{
-		"query":     query,
-		"variables": map[string]any{},
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal ping payload: %w", err)
-	}
-
-	var result struct {
-		Data struct {
-			Page struct {
-				Media []struct {
-					ID int `json:"id"`
-				} `json:"media"`
-			} `json:"Page"`
-		} `json:"data"`
-	}
-
-	if err := c.doRequest(ctx, body, &result); err != nil {
-		return fmt.Errorf("AniList ping failed: %w", err)
-	}
-
-	return nil
-}
-
 // doRequest sends a POST request with retries and exponential backoff.
 func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 	var lastErr error
@@ -364,7 +346,9 @@ func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 			continue
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
+			c.mu.Lock()
 			c.lastRateLimit = time.Now()
+			c.mu.Unlock()
 			retryAfter := resp.Header.Get("Retry-After")
 			resp.Body.Close()
 			if retryAfter != "" {
@@ -385,6 +369,10 @@ func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 			} else {
 				lastErr = fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(respBody))
 			}
+			// Client errors (4xx except 429) won't self-heal; break.
+			if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+				break
+			}
 			continue
 		}
 
@@ -392,7 +380,8 @@ func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("decode response: %w", err)
-			continue
+			// Malformed JSON won't self-heal on retry; break.
+			break
 		}
 
 		return nil
