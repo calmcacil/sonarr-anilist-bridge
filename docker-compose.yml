@@ -6,9 +6,12 @@ services:
     volumes:
       - seasonal-data:/data
     environment:
-      - PREWARM_YEARS=2026
-      - CACHE_STALE_DAYS=14
-      - LOG_LEVEL=info
+      # Prewarm current year's anime on startup (defaults to current year)
+      # - PREWARM_YEARS=2026
+      # Refresh mapping from upstream daily (default: 1)
+      # - ALG_ANIBRIDGE_REFRESH_DAYS=1
+      # Log level: debug, info, warn, error (default: info)
+      # - LOG_LEVEL=debug
 
 volumes:
   seasonal-data:
