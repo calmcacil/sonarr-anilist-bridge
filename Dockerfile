@@ -11,12 +11,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /server ./cmd/server
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates shadow su-exec
 
 COPY --from=builder /server /server
+COPY entrypoint.sh /entrypoint.sh
 
 EXPOSE 8080
 
 VOLUME ["/data"]
 
-ENTRYPOINT ["/server"]
+ENTRYPOINT ["/entrypoint.sh"]

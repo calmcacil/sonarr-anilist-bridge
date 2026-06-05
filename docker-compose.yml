@@ -6,6 +6,10 @@ services:
     volumes:
       - seasonal-data:/data
     environment:
+      # User/group to run as (default: 1000:1000)
+      # Must match UID/GID of the Sonarr process for file access
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
       # Prewarm current year's anime on startup (defaults to current year)
       # - PREWARM_YEARS=2026
       # Refresh mapping from upstream daily (default: 1)
