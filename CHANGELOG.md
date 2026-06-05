@@ -9,6 +9,9 @@ Releases are automated via the `publish.yml` workflow: each push to `main`
 with conventional commits (`feat:`, `fix:`, `perf:`, etc.) triggers a
 version bump and GitHub Release with auto-generated notes.
 
+
+## [1.0.2] — 2026-06-05
+
 ## [1.0.0] — 2026-06-05
 
 ### Added
@@ -49,3 +52,4 @@ version bump and GitHub Release with auto-generated notes.
 - `internal/mapping/community.go` — old shinkro YAML loader.
 
 [1.0.0]: https://github.com/calmcacil/sonarr-anilist-bridge/releases/tag/v1.0.0
+[1.0.2]: https://github.com/calmcacil/sonarr-anilist-bridge/releases/tag/v1.0.2
