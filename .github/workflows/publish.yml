@@ -5,12 +5,57 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump: auto, patch, minor, major'
+        required: false
+        default: auto
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.svu.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+
+      - name: Install svu
+        run: go install github.com/caarlos0/svu@latest
+
+      - name: Determine version
+        id: svu
+        run: |
+          BUMP="${{ inputs.version_bump }}"
+          if [ "$BUMP" = "auto" ]; then
+            TAG=$(svu next)
+          else
+            TAG=$(svu "$BUMP")
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.svu.outputs.tag }}" \
+            --title "${{ steps.svu.outputs.tag }}" \
+            --generate-notes
+
   build:
     runs-on: ubuntu-latest
     permissions:
