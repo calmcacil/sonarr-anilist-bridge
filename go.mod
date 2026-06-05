@@ -3,7 +3,7 @@ module github.com/calmcacil/anilistgen
 go 1.25.0
 
 require (
-	gopkg.in/yaml.v3 v3.0.1
+	github.com/klauspost/compress v1.18.6
 	modernc.org/sqlite v1.51.0
 )
 

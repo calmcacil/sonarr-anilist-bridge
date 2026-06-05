@@ -13,6 +13,8 @@ import (
 	"github.com/calmcacil/anilistgen/internal/mapping"
 )
 
+const mappingRefreshInterval = 1 * time.Hour
+
 type Scheduler struct {
 	cache    *cache.Cache
 	cfg      *config.Config
@@ -30,18 +32,8 @@ func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 		cache:  c,
 		cfg:    cfg,
 		client: anilist.New(),
+		resolver: mapping.NewResolver(),
 	}
-}
-
-func (s *Scheduler) loadResolver() {
-	if s.resolver != nil {
-		return
-	}
-	cm, err := mapping.LoadCommunityMapping("")
-	if err != nil {
-		slog.Error("failed to load community mapping", "error", err)
-	}
-	s.resolver = mapping.NewResolver(cm)
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
@@ -69,6 +61,44 @@ func (s *Scheduler) Start(ctx context.Context) {
 			}
 		}
 	}()
+
+	go func() {
+		mapTicker := time.NewTicker(mappingRefreshInterval)
+		defer mapTicker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-mapTicker.C:
+				s.refreshMapping(ctx)
+			}
+		}
+	}()
+}
+
+func (s *Scheduler) loadResolver() {
+	path := s.cfg.AnibridgeMappingPath
+	upstream := s.cfg.AnibridgeURL
+	m, _, err := mapping.LoadOrFetch(path, upstream)
+	if err != nil {
+		slog.Error("failed to load anibridge mapping", "error", err)
+		return
+	}
+	s.resolver.SetMapping(m)
+}
+
+func (s *Scheduler) refreshMapping(ctx context.Context) {
+	_ = ctx
+	path := s.cfg.AnibridgeMappingPath
+	upstream := s.cfg.AnibridgeURL
+	m, meta, err := mapping.LoadOrFetch(path, upstream)
+	if err != nil {
+		slog.Warn("anibridge mapping refresh failed, keeping current mapping", "error", err)
+		return
+	}
+	s.resolver.SetMapping(m)
+	_ = meta
 }
 
 func (s *Scheduler) Prewarm(ctx context.Context) error {

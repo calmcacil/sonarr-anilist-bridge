@@ -48,6 +48,9 @@ All via environment variables:
 | `ALG_ANILIST_INCLUDE_ONA` | `false` | Include ONA |
 | `ALG_ANILIST_WINTER_OVERFLOW` | `true` | Merge December premieres |
 | `ALG_ANILIST_EXCLUDE_TAGS` | — | Comma-separated tags to exclude |
+| `ALG_ANIBRIDGE_MAPPING_PATH` | `/data/anibridge_mappings.json.zst` | Cached anibridge mapping file |
+| `ALG_ANIBRIDGE_REFRESH_DAYS` | `1` | How often to check upstream for mapping updates |
+| `ALG_ANIBRIDGE_URL` | *(see below)* | Upstream anibridge URL; default is `v3` release asset |
 | `LOG_LEVEL` | `info` | debug/info/warn/error |
 
 ## How it works
