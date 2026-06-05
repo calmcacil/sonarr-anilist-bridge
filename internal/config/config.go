@@ -94,7 +94,7 @@ func Load() *Config {
 		CacheStaleDays:     getEnvInt("CACHE_STALE_DAYS", DefaultCacheStaleDays),
 		RefreshCurrentDays: getEnvInt("REFRESH_CURRENT_DAYS", DefaultRefreshCurrentDays),
 		RefreshPastDays:    getEnvInt("REFRESH_PAST_DAYS", DefaultRefreshPastDays),
-		AniListTimeoutMin:  getEnvInt("ALG_ANILIST_TIMEOUT_MINUTES", DefaultAniListTimeoutMin),
+		AniListTimeoutMin:  max(getEnvInt("ALG_ANILIST_TIMEOUT_MINUTES", DefaultAniListTimeoutMin), 1),
 		LogLevel:           getEnvStr("LOG_LEVEL", "info"),
 
 		AnibridgeMappingPath: getEnvStr("ALG_ANIBRIDGE_MAPPING_PATH", DefaultAnibridgeMappingPath),

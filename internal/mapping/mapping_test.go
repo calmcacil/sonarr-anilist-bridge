@@ -2,6 +2,7 @@ package mapping
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
@@ -540,7 +541,7 @@ func TestHead_NotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := Head(srv.URL)
+	_, err := Head(context.Background(), srv.URL)
 	if err == nil {
 		t.Error("expected error on 404")
 	}
@@ -560,7 +561,7 @@ func TestHead_OKReturnsMetadata(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m, err := Head(srv.URL)
+	m, err := Head(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("Head: %v", err)
 	}
@@ -589,7 +590,7 @@ func TestFetch_VerifiesMD5(t *testing.T) {
 		w.Write(payload)
 	}))
 
-	data, m, err := Fetch(srv.URL)
+	data, m, err := Fetch(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -611,7 +612,7 @@ func TestFetch_MD5Mismatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := Fetch(srv.URL)
+	_, _, err := Fetch(context.Background(), srv.URL)
 	if err == nil {
 		t.Error("expected MD5 mismatch error")
 	}
@@ -645,7 +646,7 @@ func TestLoadOrFetch_ETagShortCircuits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	am, _, err := LoadOrFetch(path, srv.URL)
+	am, _, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err != nil {
 		t.Fatalf("LoadOrFetch: %v", err)
 	}
@@ -689,7 +690,7 @@ func TestLoadOrFetch_ETagChangedTriggersGet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	am, _, err := LoadOrFetch(path, srv.URL)
+	am, _, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err != nil {
 		t.Fatalf("LoadOrFetch: %v", err)
 	}
@@ -730,7 +731,7 @@ func TestLoadOrFetch_URLChangeForcesRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	am, meta, err := LoadOrFetch(path, srv.URL)
+	am, meta, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err != nil {
 		t.Fatalf("LoadOrFetch: %v", err)
 	}
@@ -756,7 +757,7 @@ func TestLoadOrFetch_FetchFailureFallsBackToCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	am, _, err := LoadOrFetch(path, srv.URL)
+	am, _, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err != nil {
 		t.Fatalf("LoadOrFetch: %v", err)
 	}
@@ -779,7 +780,7 @@ func TestLoadOrFetch_FetchFailureNoCacheErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "absent.json.zst")
 
-	_, _, err := LoadOrFetch(path, srv.URL)
+	_, _, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err == nil {
 		t.Error("expected error when fetch fails and no cache exists")
 	}
@@ -820,7 +821,7 @@ func TestLoadOrFetch_CorruptCacheTriggersRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	am, _, err := LoadOrFetch(path, srv.URL)
+	am, _, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err != nil {
 		t.Fatalf("LoadOrFetch: %v", err)
 	}
@@ -855,7 +856,7 @@ func TestLoadOrFetch_WritesKeySnapshotToSidecar(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mapping.json.zst")
 
-	_, meta, err := LoadOrFetch(path, srv.URL)
+	_, meta, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err != nil {
 		t.Fatalf("LoadOrFetch: %v", err)
 	}
@@ -925,7 +926,7 @@ func TestLoadOrFetch_DiffBetweenVersions(t *testing.T) {
 	path := filepath.Join(dir, "mapping.json.zst")
 
 	// First load: fresh install
-	_, meta1, err := LoadOrFetch(path, srv.URL)
+	_, meta1, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err != nil {
 		t.Fatalf("first LoadOrFetch: %v", err)
 	}
@@ -939,7 +940,7 @@ func TestLoadOrFetch_DiffBetweenVersions(t *testing.T) {
 	// Switch to v2 and reload
 	current = v2Etag
 	currentMD5 = md5V2
-	_, meta2, err := LoadOrFetch(path, srv.URL)
+	_, meta2, err := LoadOrFetch(context.Background(), path, srv.URL)
 	if err != nil {
 		t.Fatalf("second LoadOrFetch: %v", err)
 	}

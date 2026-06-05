@@ -2,6 +2,7 @@ package mapping
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
@@ -89,7 +90,7 @@ func (m *AnibridgeMapping) Keys() (malKeys, aniListKeys []int) {
 // LoadOrFetch loads the mapping from path, downloading from upstream only when
 // the local cache is missing or stale. If a download fails, falls back to the
 // cached file when possible.
-func LoadOrFetch(path, url string) (*AnibridgeMapping, Metadata, error) {
+func LoadOrFetch(ctx context.Context, path, url string) (*AnibridgeMapping, Metadata, error) {
 	if path == "" {
 		path = DefaultAnibridgePath
 	}
@@ -112,7 +113,7 @@ func LoadOrFetch(path, url string) (*AnibridgeMapping, Metadata, error) {
 
 	if haveCache && meta.ETag != "" {
 		slog.Debug("checking anibridge upstream for updates", "path", path)
-		upstream, fetchErr := Head(url)
+		upstream, fetchErr := Head(ctx, url)
 		if fetchErr != nil {
 			slog.Warn("anibridge HEAD failed, using cached mapping", "error", fetchErr)
 		} else if strings.EqualFold(strings.TrimSpace(upstream.ETag), strings.TrimSpace(meta.ETag)) {
@@ -128,7 +129,7 @@ func LoadOrFetch(path, url string) (*AnibridgeMapping, Metadata, error) {
 		}
 	}
 
-	data, newMeta, err := Fetch(url)
+	data, newMeta, err := Fetch(ctx, url)
 	if err != nil {
 		if haveCache {
 			slog.Warn("anibridge fetch failed, using cached mapping", "error", err)
@@ -235,9 +236,9 @@ func keySet(keys []int) map[int]bool {
 // Head performs a HEAD against the upstream URL, following redirects. It
 // returns the current ETag, Last-Modified, and MD5 as exposed by the final
 // response.
-func Head(url string) (Metadata, error) {
+func Head(ctx context.Context, url string) (Metadata, error) {
 	client := &http.Client{Timeout: defaultAnibridgeHTTPTimeout}
-	req, err := http.NewRequest(http.MethodHead, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return Metadata{}, fmt.Errorf("create HEAD request: %w", err)
 	}
@@ -271,9 +272,9 @@ func Head(url string) (Metadata, error) {
 // Fetch performs a full GET against the upstream URL, following redirects.
 // The returned data is the raw bytes (still zstd-compressed) ready to be
 // written to disk and parsed.
-func Fetch(url string) ([]byte, Metadata, error) {
+func Fetch(ctx context.Context, url string) ([]byte, Metadata, error) {
 	client := &http.Client{Timeout: defaultAnibridgeHTTPTimeout}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, Metadata{}, fmt.Errorf("create GET request: %w", err)
 	}
