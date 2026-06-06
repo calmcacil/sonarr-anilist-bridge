@@ -14,6 +14,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [1.0.7] — 2026-06-06
+
+### Fixed
+apply architecture review findings — concurrency hardening, shutdown lifecycle, config validation, entrypoint safety
+
 ## [1.0.6] — 2026-06-05
 
 ### Fixed
@@ -85,3 +91,4 @@ rename repo to sonarr-anime-bridge
 [1.0.4]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.4
 [1.0.5]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.5
 [1.0.6]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.6
+[1.0.7]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.7
