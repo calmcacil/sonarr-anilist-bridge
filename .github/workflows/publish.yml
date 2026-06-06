@@ -103,9 +103,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ steps.svu.outputs.tag }}"
-          git push origin HEAD:main || true
+          git push origin HEAD:main
           git tag "$TAG" || true
-          git push origin "$TAG" || true
+          git push origin "$TAG"
           gh release create "$TAG" \
             --target "${{ github.sha }}" \
             --title "$TAG" \
