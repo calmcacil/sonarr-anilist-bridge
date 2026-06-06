@@ -3,6 +3,7 @@ package cache
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -84,10 +85,12 @@ func (c *Cache) Get(season string, year int, category string) (data []byte, fres
 	c.hits.Add(1)
 
 	// Update last_hit
-	c.db.Exec(
+	if _, err := c.db.Exec(
 		`UPDATE season_cache SET last_hit=? WHERE season=? AND year=? AND category=?`,
 		time.Now().Unix(), season, year, category,
-	)
+	); err != nil {
+		slog.Warn("failed to update last_hit", "error", err, "season", season, "year", year, "category", category)
+	}
 
 	if isEmpty == 1 {
 		return nil, false, true, true

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -107,7 +108,30 @@ func Load() *Config {
 		cfg.AnibridgeRefreshDays = 1
 	}
 
+	// Validate and clamp Port
+	if cfg.Port < 1 || cfg.Port > 65535 {
+		cfg.Port = DefaultPort
+	}
+
+	// Clamp MaxPerSeason to reasonable bounds
+	if cfg.MaxPerSeason < 1 {
+		cfg.MaxPerSeason = 1
+	}
+	if cfg.MaxPerSeason > 500 {
+		cfg.MaxPerSeason = 500
+	}
+
 	cfg.PrewarmYears = parseYearList("PREWARM_YEARS", []int{time.Now().Year()})
+
+	// If PREWARM_YEARS was set but parsing fell back to the default, warn.
+	if v := os.Getenv("PREWARM_YEARS"); v != "" {
+		currentYear := time.Now().Year()
+		if len(cfg.PrewarmYears) == 1 && cfg.PrewarmYears[0] == currentYear {
+			slog.Warn("PREWARM_YEARS contained no valid years, falling back to default",
+				"raw_value", v, "default_year", currentYear)
+		}
+	}
+
 	cfg.PrewarmSeasons = ResolveSeasons(parseStringList("PREWARM_SEASONS", []string{"all"}))
 
 	if aheadStr := os.Getenv("AHEAD_MONTHS"); aheadStr != "" {

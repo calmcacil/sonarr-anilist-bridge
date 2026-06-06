@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
@@ -20,6 +21,10 @@ type Scheduler struct {
 	cfg      *config.Config
 	client   *anilist.Client
 	resolver *mapping.Resolver
+
+	wg         sync.WaitGroup
+	inflightMu sync.Mutex
+	inflight   map[string]bool
 }
 
 type Show struct {
@@ -31,8 +36,9 @@ func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 	return &Scheduler{
 		cache:  c,
 		cfg:    cfg,
-		client: anilist.NewWithTimeout(time.Duration(cfg.AniListTimeoutMin) * time.Minute),
+		client:   anilist.NewWithTimeout(time.Duration(cfg.AniListTimeoutMin) * time.Minute),
 		resolver: mapping.NewResolver(),
+		inflight: make(map[string]bool),
 	}
 }
 
@@ -53,7 +59,9 @@ func (s *Scheduler) LoadResolver() {
 // refresh (every 10 min) and mapping refresh (every 1 h). Does not
 // block; the caller should Prewarm synchronously before calling this.
 func (s *Scheduler) StartBackground(ctx context.Context) {
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("panic in stale refresh background worker", "recover", r)
@@ -73,7 +81,9 @@ func (s *Scheduler) StartBackground(ctx context.Context) {
 		}
 	}()
 
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("panic in mapping refresh background worker", "recover", r)
@@ -127,6 +137,59 @@ func (s *Scheduler) Refresh(ctx context.Context, season string, year int, catego
 	return s.refresh(ctx, season, year, category)
 }
 
+// StartRefresh spawns a refresh goroutine with deduplication. If a refresh
+// for the same (season, year, category) is already in flight, this is a no-op.
+func (s *Scheduler) StartRefresh(ctx context.Context, season string, year int, category string) {
+	key := refreshKey(season, year, category)
+
+	s.inflightMu.Lock()
+	if s.inflight[key] {
+		s.inflightMu.Unlock()
+		slog.Debug("refresh already in-flight, skipping",
+			"season", season, "year", year, "category", category)
+		return
+	}
+	s.inflight[key] = true
+	s.wg.Add(1)
+	s.inflightMu.Unlock()
+	go func() {
+		defer s.wg.Done()
+		defer func() {
+			s.inflightMu.Lock()
+			delete(s.inflight, key)
+			s.inflightMu.Unlock()
+		}()
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic in refresh goroutine", "season", season, "year", year, "category", category, "recover", r)
+			}
+		}()
+		if err := s.refresh(ctx, season, year, category); err != nil {
+			slog.Error("refresh failed", "season", season, "year", year, "category", category, "error", err)
+		}
+	}()
+}
+
+// Wait blocks until all background goroutines complete, or until the context
+// is cancelled. Call after server.Shutdown to ensure in-flight operations finish.
+func (s *Scheduler) Wait(ctx context.Context) error {
+	ch := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(ch)
+	}()
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func refreshKey(season string, year int, category string) string {
+	return fmt.Sprintf("%s/%d/%s", season, year, category)
+}
+
 func (s *Scheduler) FetchAndStore(ctx context.Context, season string, year int, category string) error {
 	inserted, err := s.cache.SetEmptyIfNotExists(season, year, category)
 	if err != nil {
@@ -138,7 +201,9 @@ func (s *Scheduler) FetchAndStore(ctx context.Context, season string, year int, 
 		// need to fire off a duplicate fetch.
 		return nil
 	}
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("panic in backfill refresh", "season", season, "year", year, "category", category, "recover", r)

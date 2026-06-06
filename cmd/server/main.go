@@ -93,7 +93,16 @@ func run() error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
-	return server.Shutdown(shutdownCtx)
+	serverErr := server.Shutdown(shutdownCtx)
+
+	// Wait for background goroutines to finish, with a short grace period.
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer waitCancel()
+	if err := sched.Wait(waitCtx); err != nil {
+		slog.Warn("some background goroutines did not finish in time", "error", err)
+	}
+
+	return serverErr
 }
 
 func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config) http.HandlerFunc {
@@ -160,16 +169,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 				"year", year,
 				"category", category,
 			)
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("panic in stale refresh goroutine", "season", season, "year", year, "category", category, "recover", r)
-					}
-				}()
-				if err := sched.Refresh(context.WithoutCancel(r.Context()), season, year, category); err != nil {
-					slog.Error("stale refresh failed", "season", season, "year", year, "category", category, "error", err)
-				}
-			}()
+			sched.StartRefresh(context.WithoutCancel(r.Context()), season, year, category)
 		}
 
 		writeJSON(w, data)
