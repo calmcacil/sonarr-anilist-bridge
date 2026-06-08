@@ -41,7 +41,7 @@ func Open(path string) (*Cache, error) {
 	db.SetMaxOpenConns(5)
 
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-		db.Close()
+		db.Close() //nolint:errcheck // cleanup on error path
 		return nil, fmt.Errorf("enable WAL: %w", err)
 	}
 
@@ -57,7 +57,7 @@ func Open(path string) (*Cache, error) {
 			PRIMARY KEY (season, year, category)
 		)
 	`); err != nil {
-		db.Close()
+		db.Close() //nolint:errcheck // cleanup on error path
 		return nil, fmt.Errorf("create table: %w", err)
 	}
 
@@ -168,7 +168,7 @@ func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDay
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows.Err() captures iteration errors
 
 	var keys []CacheKey
 	now := time.Now()
@@ -202,7 +202,7 @@ func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDay
 
 func (c *Cache) Exists(season string, year int, category string) bool {
 	var count int
-	c.db.QueryRow(
+	_ = c.db.QueryRow(
 		`SELECT COUNT(*) FROM season_cache WHERE season=? AND year=? AND category=?`,
 		season, year, category,
 	).Scan(&count)
@@ -211,7 +211,7 @@ func (c *Cache) Exists(season string, year int, category string) bool {
 
 func (c *Cache) Stats() CacheStats {
 	stats := CacheStats{Hits: c.hits.Load(), Misses: c.misses.Load()}
-	c.db.QueryRow(`SELECT COUNT(*) FROM season_cache`).Scan(&stats.Entries)
+	_ = c.db.QueryRow(`SELECT COUNT(*) FROM season_cache`).Scan(&stats.Entries)
 	return stats
 }
 
