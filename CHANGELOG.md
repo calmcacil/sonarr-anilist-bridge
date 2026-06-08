@@ -20,6 +20,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.3.0] — 2026-06-08
+
+### Added
+add cache robustness fixes — db.Ping, index, placeholder/JSON validation, and VACUUM (#16)
+
 ## [2.2.0] — 2026-06-08
 
 ### Added
@@ -127,3 +133,4 @@ rename repo to sonarr-anime-bridge
 [2.0.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.0.0
 [2.1.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.1.0
 [2.2.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.2.0
+[2.3.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.3.0
