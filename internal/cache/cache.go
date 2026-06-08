@@ -312,10 +312,10 @@ func MappingVersion(m *mapping.AnibridgeMapping) string {
 
 	h := sha256.New()
 	for _, k := range malKeys {
-		h.Write([]byte(fmt.Sprintf("mal:%d\n", k)))
+		fmt.Fprintf(h, "mal:%d\n", k) //nolint:errcheck // sha256.Write never errors
 	}
 	for _, k := range aniKeys {
-		h.Write([]byte(fmt.Sprintf("anilist:%d\n", k)))
+		fmt.Fprintf(h, "anilist:%d\n", k) //nolint:errcheck // sha256.Write never errors
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
