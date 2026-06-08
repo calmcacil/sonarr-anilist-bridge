@@ -246,7 +246,7 @@ func Head(ctx context.Context, url string) (Metadata, error) {
 	if err != nil {
 		return Metadata{}, fmt.Errorf("create HEAD request: %w", err)
 	}
-	req.Header.Set("User-Agent", "sonarr-anilist-bridge/1.0")
+	req.Header.Set("User-Agent", "sonarr-anime-bridge/1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -282,7 +282,7 @@ func Fetch(ctx context.Context, url string) ([]byte, Metadata, error) {
 	if err != nil {
 		return nil, Metadata{}, fmt.Errorf("create GET request: %w", err)
 	}
-	req.Header.Set("User-Agent", "sonarr-anilist-bridge/1.0")
+	req.Header.Set("User-Agent", "sonarr-anime-bridge/1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {
