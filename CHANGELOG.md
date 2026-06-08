@@ -21,6 +21,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.4.0] — 2026-06-08
+
+### Added
+add FILTER_FUTURE_ENABLED toggle to control 3-month-ahead filtering (#17)
+
 ## [2.3.0] — 2026-06-08
 
 ### Added
@@ -134,3 +140,4 @@ rename repo to sonarr-anime-bridge
 [2.1.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.1.0
 [2.2.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.2.0
 [2.3.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.3.0
+[2.4.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.4.0
