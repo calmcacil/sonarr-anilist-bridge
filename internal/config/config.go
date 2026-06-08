@@ -14,14 +14,15 @@ const (
 )
 
 type Config struct {
-	Port           int
-	PrewarmYears   []int
-	PrewarmSeasons []string
-	MaxPerSeason   int
-	IncludeTypes   []string
-	ExcludeTags    []string
-	CacheDBPath    string
-	LogLevel       string
+	Port                int
+	PrewarmYears        []int
+	PrewarmSeasons      []string
+	MaxPerSeason        int
+	IncludeTypes        []string
+	ExcludeTags         []string
+	CacheDBPath         string
+	LogLevel            string
+	FilterFutureEnabled bool
 
 	AnibridgeMappingPath string
 	AnibridgeURL         string
@@ -107,12 +108,14 @@ func Load() *Config {
 	cfg.PrewarmSeasons = ResolveSeasons(parseStringList("PREWARM_SEASONS", []string{"all"}))
 	cfg.IncludeTypes = parseStringList("INCLUDE_TYPES", []string{"TV", "ONA"})
 	cfg.ExcludeTags = parseStringList("EXCLUDE_TAGS", nil)
+	cfg.FilterFutureEnabled = getEnvBool("FILTER_FUTURE_ENABLED", true)
 
 	slog.Info("config loaded",
 		"port", cfg.Port,
 		"max_per_season", cfg.MaxPerSeason,
 		"include_types", cfg.IncludeTypes,
 		"exclude_tags", cfg.ExcludeTags,
+		"filter_future_enabled", cfg.FilterFutureEnabled,
 		"prewarm_years", cfg.PrewarmYears,
 		"prewarm_seasons", cfg.PrewarmSeasons,
 		"cache_db_path", cfg.CacheDBPath,
@@ -127,6 +130,15 @@ func Load() *Config {
 func getEnvStr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func getEnvBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
 	}
 	return def
 }
