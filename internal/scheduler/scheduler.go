@@ -32,6 +32,35 @@ type Show struct {
 	Title  string `json:"title,omitempty"`
 }
 
+type processResult struct {
+	Shows          []Show
+	AniListTotal   int
+	AfterOverflow  int
+	AfterWinter    int
+	AfterSeries    int
+	AfterFilter    int
+	AfterFuture    int
+	AfterFirst     int
+	Resolved       int
+	Duration       time.Duration
+}
+
+func (r processResult) LogVals(season string, year int) []any {
+	return []any{
+		"season", season,
+		"year", year,
+		"anilist", r.AniListTotal,
+		"overflow", r.AfterOverflow,
+		"winter", r.AfterWinter,
+		"series", r.AfterSeries,
+		"filtered", r.AfterFilter,
+		"future", r.AfterFuture,
+		"first", r.AfterFirst,
+		"resolved", r.Resolved,
+		"duration", r.Duration,
+	}
+}
+
 func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 	return &Scheduler{
 		cache:  c,
@@ -237,6 +266,7 @@ func (s *Scheduler) FetchAndStore(ctx context.Context, season string, year int, 
 }
 
 func (s *Scheduler) refresh(ctx context.Context, season string, year int, category string) error {
+	start := time.Now()
 	seasons := []string{season}
 	if season == "ALL" {
 		seasons = config.AllSeasons()
@@ -246,12 +276,15 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 	formats := s.cfg.IncludeTypes
 
 	for _, ssn := range seasons {
-		shows, err := s.processSeason(ctx, ssn, year, formats, category)
+		res, err := s.processSeason(ctx, ssn, year, formats, category)
 		if err != nil {
 			slog.Error("season fetch failed", "season", ssn, "year", year, "error", err)
 			continue
 		}
-		allShows = append(allShows, shows...)
+		if res.Duration > 0 {
+			slog.Info("season_fetched", res.LogVals(ssn, year)...)
+		}
+		allShows = append(allShows, res.Shows...)
 	}
 
 	data, err := json.Marshal(allShows)
@@ -263,7 +296,14 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 		return fmt.Errorf("cache set: %w", err)
 	}
 
-	slog.Info("cached", "season", season, "year", year, "category", category, "shows", len(allShows))
+	slog.Info("season_cached",
+		"season", season,
+		"year", year,
+		"category", category,
+		"shows", len(allShows),
+		"mapping_version", s.MappingVersion()[:12],
+		"duration", time.Since(start),
+	)
 	return nil
 }
 
@@ -301,36 +341,50 @@ func (s *Scheduler) fetchOrGetCachedAniList(ctx context.Context, season string, 
 	return shows, nil
 }
 
-func (s *Scheduler) processSeason(ctx context.Context, season string, year int, formats []string, category string) ([]Show, error) {
-	slog.Info("fetching season", "season", season, "year", year)
+func (s *Scheduler) processSeason(ctx context.Context, season string, year int, formats []string, category string) (processResult, error) {
+	start := time.Now()
 
 	shows, err := s.fetchOrGetCachedAniList(ctx, season, year, formats)
 	if err != nil {
-		return nil, fmt.Errorf("fetch season %s %d: %w", season, year, err)
+		return processResult{}, fmt.Errorf("fetch season %s %d: %w", season, year, err)
 	}
+
+	r := processResult{AniListTotal: len(shows)}
 
 	if season == "WINTER" {
 		shows = s.fetchWinterOverflow(ctx, year, formats, shows)
 	}
+	r.AfterOverflow = len(shows)
 
 	if season == "WINTER" {
 		shows = filter.FilterWinterMonth(shows)
 	}
+	r.AfterWinter = len(shows)
 
 	shows = filter.FilterSeries(shows)
+	r.AfterSeries = len(shows)
 
 	shows = filter.Filter(shows, filter.Config{
 		ExcludeTags: s.cfg.ExcludeTags,
 	})
+	r.AfterFilter = len(shows)
+
 	if s.cfg.FilterFutureEnabled {
 		shows = filter.FilterFuture(shows, 3)
 	}
+	r.AfterFuture = len(shows)
 
 	if category == "series-new" {
 		shows = filter.FilterFirstSeason(shows)
 	}
+	r.AfterFirst = len(shows)
 
-	return s.resolveShows(shows), nil
+	resolved := s.resolveShows(shows)
+	r.Resolved = len(resolved)
+	r.Shows = resolved
+	r.Duration = time.Since(start)
+
+	return r, nil
 }
 
 func (s *Scheduler) fetchWinterOverflow(ctx context.Context, year int, formats []string, shows []anilist.Show) []anilist.Show {
@@ -356,7 +410,7 @@ func (s *Scheduler) fetchWinterOverflow(ctx context.Context, year int, formats [
 	}
 
 	if added > 0 {
-		slog.Info("winter overflow merged", "year", year, "overflow_year", overflowYear, "added", added, "total", len(shows))
+		slog.Debug("winter overflow merged", "year", year, "overflow_year", overflowYear, "added", added, "total", len(shows))
 	}
 
 	return shows
