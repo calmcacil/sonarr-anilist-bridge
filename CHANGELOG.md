@@ -24,6 +24,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.5.0] — 2026-06-08
+
+### Added
+richer pipeline logging with per-stage counts and timing (#20)
+
 ## [2.4.2] — 2026-06-08
 
 ### Fixed
@@ -158,3 +164,4 @@ rename repo to sonarr-anime-bridge
 [2.4.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.4.0
 [2.4.1]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.4.1
 [2.4.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.4.2
+[2.5.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.5.0
