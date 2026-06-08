@@ -33,7 +33,6 @@ func run() error {
 	slog.Info("starting sonarr-seasonal",
 		"port", cfg.Port,
 		"prewarm_years", cfg.PrewarmYears,
-		"prewarm_seasons", cfg.PrewarmSeasons,
 	)
 
 	db, err := cache.Open(cfg.CacheDBPath)
@@ -50,8 +49,6 @@ func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Warm the cache before accepting requests so the first client hit
-	// gets real data instead of triggering an async backfill.
 	sched.LoadResolver()
 	slog.Info("prewarming cache")
 	if err := sched.Prewarm(ctx); err != nil {
@@ -66,7 +63,7 @@ func run() error {
 	mux.HandleFunc("/list", handleList(db, sched, cfg))
 	mux.HandleFunc("/health", handleHealth(db, sched))
 	mux.HandleFunc("/cache/stats", handleCacheStats(db))
-	mux.HandleFunc("/cache/clear", handleCacheClear(db, sched))
+	mux.HandleFunc("/cache/clear", handleCacheClear(db))
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
@@ -102,7 +99,6 @@ func run() error {
 
 	serverErr := server.Shutdown(shutdownCtx)
 
-	// Wait for background goroutines to finish, with a short grace period.
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer waitCancel()
 	if err := sched.Wait(waitCtx); err != nil {
@@ -129,7 +125,6 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 		year := time.Now().Year()
 		if yearStr != "" {
 			if y, err := strconv.Atoi(yearStr); err == nil && y > 0 {
-				// Clamp to ±10 years to prevent excessive queries
 				switch {
 				case y < year-10:
 					year -= 10
@@ -149,7 +144,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 			category = "series"
 		}
 
-		data, fresh, isPending, ok := db.Get(season, year, category, sched.MappingVersion(), cfg.FilterFutureEnabled)
+		data, fresh, ok := db.GetYear(year)
 		if !ok {
 			slog.Info("cache miss, triggering backfill",
 				"season", season,
@@ -157,7 +152,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 				"category", category,
 			)
 
-			if err := sched.FetchAndStore(r.Context(), season, year, category); err != nil {
+			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year); err != nil {
 				slog.Error("trigger backfill failed", "error", err)
 			}
 
@@ -165,22 +160,40 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 			return
 		}
 
-		if isPending {
-			writeJSON(w, []byte("[]"))
+		if season == "WINTER" && !db.HasYear(year-1) {
+			slog.Debug("winter overflow: prior year not cached, triggering backfill",
+				"prior_year", year-1,
+			)
+			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year-1); err != nil {
+				slog.Error("winter overflow backfill failed", "error", err)
+			}
+		}
+
+		shows, err := sched.Process(data, season, year, category)
+		if err != nil {
+			slog.Error("processing failed", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 
-		// Stale data triggers proactive refresh; caller still gets cached response.
 		if !fresh {
 			slog.Debug("serving stale data, triggering refresh",
 				"season", season,
 				"year", year,
 				"category", category,
 			)
-			sched.StartRefresh(context.WithoutCancel(r.Context()), season, year, category)
+			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year); err != nil {
+				slog.Error("stale refresh failed", "error", err)
+			}
 		}
 
-		writeJSON(w, data)
+		body, err := json.Marshal(shows)
+		if err != nil {
+			slog.Error("marshal result", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, body)
 	}
 }
 
@@ -219,7 +232,7 @@ func handleCacheStats(db *cache.Cache) http.HandlerFunc {
 	}
 }
 
-func handleCacheClear(db *cache.Cache, sched *scheduler.Scheduler) http.HandlerFunc {
+func handleCacheClear(db *cache.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -243,7 +256,6 @@ func writeJSON(w http.ResponseWriter, data []byte) {
 	w.Write(data)
 }
 
-// loggingMiddleware logs the method, path, status, and duration of each request.
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -258,7 +270,6 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// recoveryMiddleware catches panics in downstream handlers and returns 500.
 func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -274,7 +285,6 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// statusResponseWriter wraps http.ResponseWriter to capture the status code.
 type statusResponseWriter struct {
 	http.ResponseWriter
 	status int

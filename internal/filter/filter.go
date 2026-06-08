@@ -10,8 +10,6 @@ type Config struct {
 	ExcludeTags []string
 }
 
-// Filter removes shows with short duration or excluded content tags.
-// Returns the filtered slice.
 func Filter(shows []anilist.Show, cfg Config) []anilist.Show {
 	var filtered []anilist.Show
 	for _, show := range shows {
@@ -57,8 +55,6 @@ func hasExcludedTag(show anilist.Show, tags []string) bool {
 	return false
 }
 
-// FilterFuture removes shows whose start date is more than aheadMonths
-// months in the future. Returns the original slice if aheadMonths is <= 0.
 func FilterFuture(shows []anilist.Show, aheadMonths int) []anilist.Show {
 	if aheadMonths <= 0 {
 		return shows
@@ -77,19 +73,59 @@ func FilterFuture(shows []anilist.Show, aheadMonths int) []anilist.Show {
 	return filtered
 }
 
-// FilterSeries keeps only shows that are series format.
-func FilterSeries(shows []anilist.Show) []anilist.Show {
+func FilterByFormats(shows []anilist.Show, formats []string) []anilist.Show {
+	valid := make(map[string]bool, len(formats))
+	for _, f := range formats {
+		valid[f] = true
+	}
 	var out []anilist.Show
 	for _, sh := range shows {
-		if sh.IsSeries() {
+		if valid[sh.Format] {
 			out = append(out, sh)
 		}
 	}
 	return out
 }
 
-// FilterFirstSeason keeps only shows that are first-season entries
-// (no PREQUEL or PARENT relations).
+func FilterBySeason(shows []anilist.Show, season string) []anilist.Show {
+	if season == "ALL" {
+		return shows
+	}
+	var out []anilist.Show
+	for _, sh := range shows {
+		if sh.Season == season {
+			out = append(out, sh)
+			continue
+		}
+		if sh.Season != "" {
+			continue
+		}
+		if sh.StartDate.Month == nil {
+			continue
+		}
+		m := *sh.StartDate.Month
+		switch season {
+		case "WINTER":
+			if m == 12 || m == 1 || m == 2 || m == 3 {
+				out = append(out, sh)
+			}
+		case "SPRING":
+			if m >= 4 && m <= 6 {
+				out = append(out, sh)
+			}
+		case "SUMMER":
+			if m >= 7 && m <= 9 {
+				out = append(out, sh)
+			}
+		case "FALL":
+			if m == 10 || m == 11 {
+				out = append(out, sh)
+			}
+		}
+	}
+	return out
+}
+
 func FilterFirstSeason(shows []anilist.Show) []anilist.Show {
 	var out []anilist.Show
 	for _, sh := range shows {
@@ -98,15 +134,4 @@ func FilterFirstSeason(shows []anilist.Show) []anilist.Show {
 		}
 	}
 	return out
-}
-
-// FilterWinterMonth keeps only shows that started in a winter month.
-func FilterWinterMonth(shows []anilist.Show) []anilist.Show {
-	var filtered []anilist.Show
-	for _, sh := range shows {
-		if sh.IsWinterStart() {
-			filtered = append(filtered, sh)
-		}
-	}
-	return filtered
 }

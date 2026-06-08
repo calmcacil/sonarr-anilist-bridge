@@ -16,7 +16,6 @@ const (
 type Config struct {
 	Port                int
 	PrewarmYears        []int
-	PrewarmSeasons      []string
 	MaxPerSeason        int
 	IncludeTypes        []string
 	ExcludeTags         []string
@@ -33,39 +32,6 @@ const (
 	DefaultMaxPerSeason = 100
 	DefaultCacheDBPath  = "/data/cache.db"
 )
-
-func AllSeasons() []string {
-	return []string{"WINTER", "SPRING", "SUMMER", "FALL"}
-}
-
-func ResolveSeasons(raw []string) []string {
-	if len(raw) == 0 {
-		return AllSeasons()
-	}
-	seen := make(map[string]bool, len(raw))
-	var out []string
-	for _, s := range raw {
-		if strings.EqualFold(s, "all") {
-			return AllSeasons()
-		}
-		var season string
-		switch strings.ToLower(strings.TrimSpace(s)) {
-		case "winter":
-			season = "WINTER"
-		case "spring":
-			season = "SPRING"
-		case "summer":
-			season = "SUMMER"
-		case "fall":
-			season = "FALL"
-		}
-		if season != "" && !seen[season] {
-			seen[season] = true
-			out = append(out, season)
-		}
-	}
-	return out
-}
 
 func Load() *Config {
 	cfg := &Config{
@@ -105,7 +71,6 @@ func Load() *Config {
 		}
 	}
 
-	cfg.PrewarmSeasons = ResolveSeasons(parseStringList("PREWARM_SEASONS", []string{"all"}))
 	cfg.IncludeTypes = parseStringList("INCLUDE_TYPES", []string{"TV", "ONA"})
 	cfg.ExcludeTags = parseStringList("EXCLUDE_TAGS", nil)
 	cfg.FilterFutureEnabled = getEnvBool("FILTER_FUTURE_ENABLED", true)
@@ -117,7 +82,6 @@ func Load() *Config {
 		"exclude_tags", cfg.ExcludeTags,
 		"filter_future_enabled", cfg.FilterFutureEnabled,
 		"prewarm_years", cfg.PrewarmYears,
-		"prewarm_seasons", cfg.PrewarmSeasons,
 		"cache_db_path", cfg.CacheDBPath,
 		"mapping_path", cfg.AnibridgeMappingPath,
 		"mapping_url", cfg.AnibridgeURL,

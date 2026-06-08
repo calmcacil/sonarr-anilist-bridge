@@ -57,6 +57,7 @@ type Show struct {
 	Genres    []string       `json:"genres"`
 	Tags      []Tag          `json:"tags"`
 	Status    string         `json:"status"`
+	Season    string         `json:"season"`
 	StartDate FuzzyDate      `json:"startDate"`
 	Relations *RelationBlock `json:"relations,omitempty"`
 }
@@ -146,18 +147,19 @@ func (s Show) DisplayTitle() string {
 	return fmt.Sprintf("Anime #%d", s.ID)
 }
 
-// GraphQL query for fetching seasonal anime with pagination info.
-const queryTemplate = `query($s: MediaSeason, $y: Int, $page: Int, $perPage: Int, $formats: [MediaFormat]) {
+// yearQueryTemplate fetches all anime for a given year regardless of season,
+// across all formats. Local filtering applies the per-season and per-format
+// filters on-the-fly from the cached data.
+const yearQueryTemplate = `query($y: Int, $page: Int, $perPage: Int) {
 	Page(page: $page, perPage: $perPage) {
 		pageInfo {
 			hasNextPage
 			currentPage
 		}
 		media(
-			season: $s, seasonYear: $y,
+			seasonYear: $y,
 			type: ANIME,
-			sort: POPULARITY_DESC,
-			format_in: $formats
+			sort: POPULARITY_DESC
 		) {
 			id
 			idMal
@@ -168,6 +170,7 @@ const queryTemplate = `query($s: MediaSeason, $y: Int, $page: Int, $perPage: Int
 			genres
 			tags { name }
 			status
+			season
 			startDate { year month day }
 			relations {
 				edges {
@@ -252,10 +255,9 @@ func (c *Client) throttle() {
 	c.mu.Unlock()
 }
 
-// FetchSeason returns anime for the given season, year, and formats.
-// Results are capped at maxResults. Paginates through AniList's 50-per-page limit.
-func (c *Client) FetchSeason(ctx context.Context, season string, year int, maxResults int, formats []string) ([]Show, error) {
-
+// FetchYear returns all anime (all seasons, all formats) for the given year.
+// Paginates through AniList's 50-per-page limit until all pages are fetched.
+func (c *Client) FetchYear(ctx context.Context, year int, maxResults int) ([]Show, error) {
 	perPage := maxPerPage
 	if maxResults > 0 && maxResults < perPage {
 		perPage = maxResults
@@ -274,13 +276,11 @@ func (c *Client) FetchSeason(ctx context.Context, season string, year int, maxRe
 		c.throttle()
 
 		payload := map[string]any{
-			"query": queryTemplate,
+			"query": yearQueryTemplate,
 			"variables": map[string]any{
-				"s":       season,
 				"y":       year,
 				"page":    page,
 				"perPage": perPage,
-				"formats": formats,
 			},
 		}
 
@@ -291,7 +291,7 @@ func (c *Client) FetchSeason(ctx context.Context, season string, year int, maxRe
 
 		var resp graphqlResponse
 		if err := c.doRequest(ctx, body, &resp); err != nil {
-			return nil, fmt.Errorf("fetch %s %d (page %d): %w", season, year, page, err)
+			return nil, fmt.Errorf("fetch year %d (page %d): %w", year, page, err)
 		}
 
 		if len(resp.Errors) > 0 {
@@ -309,11 +309,6 @@ func (c *Client) FetchSeason(ctx context.Context, season string, year int, maxRe
 		allShows = append(allShows, shows...)
 
 		if !resp.Data.Page.PageInfo.HasNextPage {
-			break
-		}
-
-		if maxResults > 0 && len(allShows) >= maxResults {
-			allShows = allShows[:maxResults]
 			break
 		}
 
