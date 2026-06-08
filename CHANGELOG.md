@@ -19,6 +19,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.2.0] — 2026-06-08
+
+### Added
+cache uplift — AniList raw cache, mapping versioning, periodic stats, integration tests (#15)
+
 ## [2.1.0] — 2026-06-08
 
 ### Added
@@ -120,3 +126,4 @@ rename repo to sonarr-anime-bridge
 [1.1.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.1.0
 [2.0.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.0.0
 [2.1.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.1.0
+[2.2.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.2.0
