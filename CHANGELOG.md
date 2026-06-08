@@ -9,6 +9,15 @@ Releases are automated via the `publish.yml` workflow: each push to `main`
 with conventional commits (`feat:`, `fix:`, `perf:`, etc.) triggers a
 version bump and GitHub Release with auto-generated notes.
 
+
+## [2.6.1] — 2026-06-08
+
+### Fixed
+include winter overflow shows in season=ALL responses (#25)
+
+### Documentation
+sync specs to current year-cache architecture, simplify, fix stale references
+
 ## [2.6.0] — 2026-06-08
 
 ### Changed
@@ -156,3 +165,4 @@ rename repo to sonarr-anime-bridge
 [2.4.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.4.2
 [2.5.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.5.0
 [2.6.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.0
+[2.6.1]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.1
