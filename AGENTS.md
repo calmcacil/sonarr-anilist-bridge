@@ -133,5 +133,5 @@ set beyond what upstream data churn explains, investigate before merging.
 
 - **Build**: `go build ./...`
 - **Test**: `go test -race ./...`
-- **Lint**: `golangci-lint run ./...` (install: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`)
+- **Lint**: `golangci-lint run ./...` (install: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`; PATH may need `$(go env GOPATH)/bin` prepended)
 - **Docker build**: `DOCKER_BUILDKIT=1 docker build --build-arg BUILDPLATFORM=linux/arm64 --build-arg TARGETOS=linux --build-arg TARGETARCH=arm64 -t sonarr-anime-bridge:test .`

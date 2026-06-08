@@ -396,6 +396,9 @@ func (s *Scheduler) prune(ctx context.Context) {
 	}
 	if n > 0 {
 		slog.Info("pruned cache entries", "count", n)
+		if err := s.cache.Vacuum(); err != nil {
+			slog.Error("vacuum failed", "error", err)
+		}
 	}
 }
 
