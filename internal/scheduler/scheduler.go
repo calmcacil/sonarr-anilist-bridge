@@ -175,11 +175,21 @@ func (s *Scheduler) Process(rawData []byte, season string, year int, category st
 }
 
 func (s *Scheduler) FetchAndStore(ctx context.Context, year int) error {
-	if _, loaded := s.inflight.LoadOrStore(year, true); loaded {
-		slog.Debug("year fetch already in-flight, skipping", "year", year)
-		return nil
+	ch := make(chan struct{})
+	actual, loaded := s.inflight.LoadOrStore(year, ch)
+	if loaded {
+		slog.Debug("year fetch already in-flight, waiting", "year", year)
+		select {
+		case <-actual.(chan struct{}):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	defer s.inflight.Delete(year)
+	defer func() {
+		s.inflight.Delete(year)
+		close(ch)
+	}()
 
 	shows, err := s.client.FetchYear(ctx, year, s.cfg.MaxPerSeason)
 	if err != nil {
