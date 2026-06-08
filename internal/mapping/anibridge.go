@@ -112,16 +112,17 @@ func LoadOrFetch(ctx context.Context, path, url string) (*AnibridgeMapping, Meta
 	if haveCache && meta.ETag != "" {
 		slog.Debug("checking anibridge upstream for updates", "path", path)
 		upstream, fetchErr := Head(ctx, url)
-		if fetchErr != nil {
+		switch {
+		case fetchErr != nil:
 			slog.Warn("anibridge HEAD failed, using cached mapping", "error", fetchErr)
-		} else if strings.EqualFold(strings.TrimSpace(upstream.ETag), strings.TrimSpace(meta.ETag)) {
+		case strings.EqualFold(strings.TrimSpace(upstream.ETag), strings.TrimSpace(meta.ETag)):
 			slog.Info("anibridge mapping is up to date (ETag match)", "etag", meta.ETag)
 			m, parseErr := parseAnibridgeFile(path)
 			if parseErr == nil {
 				return m, meta, nil
 			}
 			slog.Warn("cached anibridge file is corrupt, re-downloading", "error", parseErr)
-		} else {
+		default:
 			slog.Info("anibridge mapping is stale, refreshing",
 				"cached_etag", meta.ETag, "upstream_etag", upstream.ETag)
 		}
@@ -326,7 +327,7 @@ func parseAnibridgeFile(path string) (*AnibridgeMapping, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open anibridge mapping: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only, error not useful
 
 	zr, err := zstd.NewReader(f)
 	if err != nil {
@@ -363,7 +364,7 @@ func writeFileAtomic(path string, data []byte) error {
 	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		tmp.Close() //nolint:errcheck // cleanup on error path
 		return fmt.Errorf("write file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

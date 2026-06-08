@@ -40,7 +40,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open cache: %w", err)
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck // cleanup on exit
 
 	sched := scheduler.New(db, cfg)
 
@@ -123,11 +123,12 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 		if yearStr != "" {
 			if y, err := strconv.Atoi(yearStr); err == nil && y > 0 {
 				// Clamp to ±10 years to prevent excessive queries
-				if y < year-10 {
-					year = year - 10
-				} else if y > year+10 {
-					year = year + 10
-				} else {
+				switch {
+				case y < year-10:
+					year -= 10
+				case y > year+10:
+					year += 10
+				default:
 					year = y
 				}
 			}
@@ -185,12 +186,13 @@ func handleHealth(db *cache.Cache, sched *scheduler.Scheduler) http.HandlerFunc 
 		}
 		resolverOK := sched.ResolverLoaded()
 		w.Header().Set("Content-Type", "application/json")
-		if healthy && resolverOK {
+		switch {
+		case healthy && resolverOK:
 			w.Write([]byte(`{"status":"ok"}`))
-		} else if healthy {
+		case healthy:
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte(`{"status":"degraded","reason":"resolver not loaded"}`))
-		} else {
+		default:
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte(`{"status":"unhealthy"}`))
 		}

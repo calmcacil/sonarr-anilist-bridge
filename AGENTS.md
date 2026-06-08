@@ -5,7 +5,7 @@ Project-specific rules for coding agents working on this repo.
 ## Before Pull Request
 
 - Run the full regression suite before creating any PR:
-  `go vet ./... && go build ./... && go test -race ./...`
+  `golangci-lint run ./... && go build ./... && go test -race ./...`
 - When making behavioral changes, also run side-by-side Docker regression
   tests to confirm no unintended regression. Use default configuration
   (no MAX_PER_SEASON override) so the full seasonal output is fetched.
@@ -133,5 +133,5 @@ set beyond what upstream data churn explains, investigate before merging.
 
 - **Build**: `go build ./...`
 - **Test**: `go test -race ./...`
-- **Lint**: `go vet ./...`
+- **Lint**: `golangci-lint run ./...` (install: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`)
 - **Docker build**: `DOCKER_BUILDKIT=1 docker build --build-arg BUILDPLATFORM=linux/arm64 --build-arg TARGETOS=linux --build-arg TARGETARCH=arm64 -t sonarr-anime-bridge:test .`
