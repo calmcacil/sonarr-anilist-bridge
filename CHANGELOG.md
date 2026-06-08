@@ -15,6 +15,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [1.0.8] — 2026-06-08
+
+### Miscellaneous
+improve CI, testing, Docker, and code organization (#7)
+
 ## [1.0.7] — 2026-06-06
 
 ### Fixed
@@ -92,3 +98,4 @@ rename repo to sonarr-anime-bridge
 [1.0.5]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.5
 [1.0.6]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.6
 [1.0.7]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.7
+[1.0.8]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.8
