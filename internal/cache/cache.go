@@ -92,6 +92,11 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("migrate season_cache: %w", err)
 	}
 
+	if err := migrateFilterFutureEnabled(db); err != nil {
+		db.Close() //nolint:errcheck // cleanup on error path
+		return nil, fmt.Errorf("migrate filter_future_enabled: %w", err)
+	}
+
 	if err := db.Ping(); err != nil {
 		db.Close() //nolint:errcheck // cleanup on error path
 		return nil, fmt.Errorf("ping sqlite: %w", err)
@@ -220,12 +225,16 @@ func (c *Cache) GetWithVersion(season string, year int, category string, mapping
 	return raw, fresh, false, true
 }
 
-func (c *Cache) SetWithVersion(season string, year int, category string, data []byte, mappingVersion string) error {
+func (c *Cache) SetWithVersion(season string, year int, category string, data []byte, mappingVersion string, filterFutureEnabled bool) error {
 	now := time.Now().Unix()
+	ffe := 0
+	if filterFutureEnabled {
+		ffe = 1
+	}
 	_, err := c.db.Exec(
-		`INSERT OR REPLACE INTO season_cache (season, year, category, data, is_empty, fetched_at, last_hit, mapping_version)
-		 VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
-		season, year, category, data, now, now, mappingVersion,
+		`INSERT OR REPLACE INTO season_cache (season, year, category, data, is_empty, fetched_at, last_hit, mapping_version, filter_future_enabled)
+		 VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+		season, year, category, data, now, now, mappingVersion, ffe,
 	)
 	return err
 }
@@ -260,6 +269,20 @@ func (c *Cache) SetEmptyIfNotExists(season string, year int, category string) (b
 	return n > 0, nil
 }
 
+func (c *Cache) Clear() error {
+	_, err := c.db.Exec(`DELETE FROM season_cache`)
+	if err != nil {
+		return err
+	}
+	_, err = c.db.Exec(`DELETE FROM anilist_cache`)
+	if err != nil {
+		return err
+	}
+	c.hits.Store(0)
+	c.misses.Store(0)
+	return nil
+}
+
 func (c *Cache) Vacuum() error {
 	_, err := c.db.Exec("VACUUM")
 	return err
@@ -278,9 +301,9 @@ func (c *Cache) PruneStale(staleDays int) (int, error) {
 	return int(n), nil
 }
 
-func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDays int, mappingVersion string) ([]CacheKey, error) {
+func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDays int, mappingVersion string, filterFutureEnabled bool) ([]CacheKey, error) {
 	stalePendingCutoff := time.Now().Add(-1 * time.Hour).Unix()
-	rows, err := c.db.Query(`SELECT season, year, category, fetched_at, is_empty, mapping_version FROM season_cache WHERE is_empty = 0 OR (is_empty = 1 AND fetched_at < ?)`, stalePendingCutoff)
+	rows, err := c.db.Query(`SELECT season, year, category, fetched_at, is_empty, mapping_version, filter_future_enabled FROM season_cache WHERE is_empty = 0 OR (is_empty = 1 AND fetched_at < ?)`, stalePendingCutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +317,8 @@ func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDay
 		var fetchedAt int64
 		var isEmpty int
 		var storedVersion string
-		if err := rows.Scan(&key.Season, &key.Year, &key.Category, &fetchedAt, &isEmpty, &storedVersion); err != nil {
+		var storedFilterFuture int
+		if err := rows.Scan(&key.Season, &key.Year, &key.Category, &fetchedAt, &isEmpty, &storedVersion, &storedFilterFuture); err != nil {
 			return nil, err
 		}
 
@@ -304,6 +328,11 @@ func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDay
 		}
 
 		if storedVersion != mappingVersion {
+			keys = append(keys, key)
+			continue
+		}
+
+		if (storedFilterFuture == 1) != filterFutureEnabled {
 			keys = append(keys, key)
 			continue
 		}
@@ -330,6 +359,18 @@ func (c *Cache) Exists(season string, year int, category string) bool {
 	return count > 0
 }
 
+func (c *Cache) FilterFutureEnabledMatches(season string, year int, category string, enabled bool) (bool, error) {
+	var stored int
+	err := c.db.QueryRow(
+		`SELECT filter_future_enabled FROM season_cache WHERE season=? AND year=? AND category=?`,
+		season, year, category,
+	).Scan(&stored)
+	if err != nil {
+		return false, err
+	}
+	return (stored == 1) == enabled, nil
+}
+
 func (c *Cache) Stats() CacheStats {
 	stats := CacheStats{Hits: c.hits.Load(), Misses: c.misses.Load()}
 	_ = c.db.QueryRow(`SELECT COUNT(*) FROM season_cache`).Scan(&stats.Entries)
@@ -344,6 +385,19 @@ func migrateMappingVersion(db *sql.DB) error {
 	}
 	if count == 0 {
 		_, err := db.Exec(`ALTER TABLE season_cache ADD COLUMN mapping_version TEXT NOT NULL DEFAULT ''`)
+		return err
+	}
+	return nil
+}
+
+func migrateFilterFutureEnabled(db *sql.DB) error {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('season_cache') WHERE name='filter_future_enabled'`).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err := db.Exec(`ALTER TABLE season_cache ADD COLUMN filter_future_enabled INTEGER NOT NULL DEFAULT 1`)
 		return err
 	}
 	return nil

@@ -66,6 +66,7 @@ func run() error {
 	mux.HandleFunc("/list", handleList(db, sched, cfg))
 	mux.HandleFunc("/health", handleHealth(db, sched))
 	mux.HandleFunc("/cache/stats", handleCacheStats(db))
+	mux.HandleFunc("/cache/clear", handleCacheClear(db, sched))
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
@@ -215,6 +216,25 @@ func handleCacheStats(db *cache.Cache) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, data)
+	}
+}
+
+func handleCacheClear(db *cache.Cache, sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		slog.Warn("clearing all cache entries")
+		if err := db.Clear(); err != nil {
+			slog.Error("cache clear failed", "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
 	}
 }
 
