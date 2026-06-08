@@ -3,6 +3,13 @@ name: Build and publish Docker image
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'specs/**'
+      - '.github/**'
+      - 'LICENSE'
+      - 'NOTICE'
     tags: ['v*']
   workflow_dispatch:
     inputs:
@@ -113,7 +120,6 @@ jobs:
 
   docker:
     needs: version
-    if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
