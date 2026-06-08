@@ -9,23 +9,6 @@ Releases are automated via the `publish.yml` workflow: each push to `main`
 with conventional commits (`feat:`, `fix:`, `perf:`, etc.) triggers a
 version bump and GitHub Release with auto-generated notes.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ## [2.6.0] — 2026-06-08
 
 ### Changed
