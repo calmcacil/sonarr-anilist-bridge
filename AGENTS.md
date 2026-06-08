@@ -73,7 +73,7 @@ PORT=18081 CACHE_DB_PATH="$CAND_DATA/cache.db" \
 REF_DATA=$(mktemp -d)
 PORT=18082 CACHE_DB_PATH="$REF_DATA/cache.db" \
   MAPPING_PATH="$REF_DATA/mappings.json.zst" \
-  PREWARM_YEARS="$(date +%Y)" PREWARM_SEASONS="winter" \
+  PREWARM_YEARS="$(date +%Y)" \
   /tmp/sab-ref-server &
 
 # 5. Wait for both to be healthy (up to 90s — full-year fetch takes longer)
@@ -184,7 +184,7 @@ REF_DATA=$(mktemp -d)
 docker run -d --name sab-ref \
   -v "$REF_DATA":/data \
   -e PUID="$(id -u)" -e PGID="$(id -g)" \
-  -e PREWARM_YEARS="$(date +%Y)" -e PREWARM_SEASONS="winter" \
+  -e PREWARM_YEARS="$(date +%Y)" \
   -p 18082:8080 \
   ghcr.io/calmcacil/sonarr-anime-bridge:latest
 sleep 25

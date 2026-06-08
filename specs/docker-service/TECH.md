@@ -4,236 +4,153 @@
 
 ```
 cmd/server/main.go
-  ├── internal/config/        → env-var configuration (env-only, no YAML/CLI)
-  ├── internal/cache/         → SQLite cache layer via modernc.org/sqlite
-  ├── internal/scheduler/     → background refresh + mapping refresh goroutines
+  ├── internal/config/        → env-var configuration (no YAML/CLI)
+  ├── internal/cache/         → SQLite year-cache (modernc.org/sqlite)
+  ├── internal/scheduler/     → pipeline + background refresh goroutines
   ├── internal/anilist/       → AniList GraphQL client (paginated, rate-limited)
-  ├── internal/filter/        → show filtering (duration, blacklist, tags, future)
-  └── internal/mapping/       → TVDB ID resolver using anibridge/anibridge-mappings
-       ├── anibridge.go       → zstd JSON parser, HTTP conditional fetch, sidecar metadata
-       └── resolve.go         → Resolver with atomic.Pointer mapping swap
+  ├── internal/filter/        → on-the-fly filtering (season, format, duration, tags, future)
+  └── internal/mapping/       → TVDB ID resolver (anibridge, atomic.Pointer)
 ```
 
-The CLI entry point (`cmd/anilistgen/`) was removed on extraction.
-`internal/logging/` and `internal/output/` were also removed (logging uses
-stdlib `log/slog`; JSON output is served directly from cache).
+**Key design**: The server fetches full-year data from AniList (all seasons, all
+formats) and caches the raw JSON per year in `year_cache(year)`. Filtering and
+TVDB resolution happen on-the-fly per request. No per-season or per-category
+cache entries.
+
+## Core Pipeline
+
+```
+request → db.GetYear(year)
+  ├─ MISS → trigger async FetchAndStore(year) → return []
+  ├─ WINTER + prior year missing → trigger async FetchAndStore(year-1)
+  └─ HIT → sched.Process(rawData, season, year, category)
+       ├─ Unmarshal raw JSON
+       ├─ Winter overflow merge (December starts from prior year)
+       ├─ FilterBySeason → select matching season
+       ├─ FilterByFormats → keep configured formats
+       ├─ Filter → exclude by duration ≤10 min and tags
+       ├─ FilterFuture(3) → exclude shows >3 months out
+       ├─ FilterFirstSeason → exclude prequels/parents (series-new only)
+       ├─ ResolveBatch → AniList IDs → TVDB IDs
+       └─ Marshal → JSON response
+```
 
 ## Component Details
 
-### `internal/config/` (Adapted)
+### `internal/config/`
 
-Strip YAML loading, file search paths, `init-config`, `validate`, and CLI flag
-support. Replace with pure environment variable loading via `os.Getenv`.
+Pure `os.Getenv`. All values validated/clamped on load.
 
-```go
-type Config struct {
-    Port               int
-    PrewarmYears       []int
-    PrewarmSeasons     []string
-    MaxPerSeason       int
-    IncludeONA         bool
-    WinterOverflow     bool
-    AheadMonths        *int
-    ExcludeTags        []string
-    CacheDBPath        string
-    CacheStaleDays     int
-    RefreshCurrentDays int
-    RefreshPastDays    int
-    AniListTimeoutMin  int
-    LogLevel           string
+| Field | Env Var | Default |
+|-------|---------|---------|
+| `Port` | `PORT` | `8080` (clamped 1–65535) |
+| `PrewarmYears` | `PREWARM_YEARS` | `[current year]` |
+| `MaxPerSeason` | `MAX_PER_SEASON` | `100` (clamped 1–500) |
+| `IncludeTypes` | `INCLUDE_TYPES` | `["TV", "ONA"]` |
+| `ExcludeTags` | `EXCLUDE_TAGS` | `nil` |
+| `FilterFutureEnabled` | `FILTER_FUTURE_ENABLED` | `true` |
+| `CacheDBPath` | `CACHE_DB_PATH` | `/data/cache.db` |
+| `LogLevel` | `LOG_LEVEL` | `"info"` |
+| `AnibridgeMappingPath` | `MAPPING_PATH` | `/data/anibridge_mappings.json.zst` |
+| `AnibridgeURL` | `MAPPING_URL` | anibridge release URL |
 
-    // AniBridge mapping
-    AnibridgeMappingPath string
-    AnibridgeRefreshDays int
-    AnibridgeURL         string
-}
-```
+### `internal/cache/`
 
-### `internal/cache/` (Existing)
+Pure-Go SQLite (WAL mode). One row per year:
 
-Pure-Go SQLite via `modernc.org/sqlite` (no CGO, easy cross-compilation).
-
-Schema:
 ```sql
-CREATE TABLE IF NOT EXISTS season_cache (
-    season    TEXT NOT NULL,
-    year      INTEGER NOT NULL,
-    category  TEXT NOT NULL,
-    data      BLOB NOT NULL,
-    is_empty  INTEGER NOT NULL DEFAULT 0,
-    fetched_at INTEGER NOT NULL,
-    last_hit  INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (season, year, category)
-);
+CREATE TABLE year_cache (year INTEGER PRIMARY KEY, data BLOB, fetched_at INTEGER, last_hit INTEGER DEFAULT 0);
 ```
 
-Exported API:
-```go
-type Cache struct { ... }
+Freshness: 24 h for current year, 7 days for past years. Hit/miss counts via
+`atomic.Int64`. Key methods: `GetYear`, `SetYear`, `HasYear`, `Clear`,
+`NeedsRefreshYears`, `PruneStaleYears`, `Stats`, `Ping`.
 
-func Open(path string) (*Cache, error)
-func (c *Cache) Close() error
-func (c *Cache) Get(season string, year int, category string) (data []byte, fresh bool, isPending bool, ok bool)
-func (c *Cache) Set(season string, year int, category string, data []byte) error
-func (c *Cache) SetEmptyIfNotExists(season string, year int, category string) (bool, error)
-func (c *Cache) MarkHit(season string, year int, category string) error
-func (c *Cache) Exists(season string, year int, category string) bool
-func (c *Cache) PruneStale(staleDays int) (int, error)
-func (c *Cache) NeedsRefresh(currentYear int, currentRefreshDays, pastRefreshDays int) ([]CacheKey, error)
-func (c *Cache) Stats() CacheStats
-```
+### `internal/scheduler/`
 
-### `internal/scheduler/` (Existing)
+Owns the fetch → cache → filter → resolve pipeline. Background goroutines:
 
-Before the background goroutine starts, the scheduler runs a synchronous Prewarm
-for configured years/seasons.
+- **Stale refresh** (every 10 min): refreshes years stale beyond 1 day (current) or 7 days (past), prunes entries with last_hit >14 days old, vacuums SQLite.
+- **Mapping refresh** (every 24 h): HEAD-checks upstream anibridge ETag, downloads if changed, swaps atomically.
 
-The background goroutine ticks periodically and:
+In-flight deduplication: `sync.Map` prevents concurrent fetches for the same year.
+Panic recovery and context-cancellation-aware in all goroutines.
 
-1. Queries cache for entries needing refresh (every 10 min)
-2. For each: fetches from AniList → filters → resolves → updates cache
-3. Refreshes the anibridge mapping from upstream (every 24 h, configurable via ALG_ANIBRIDGE_REFRESH_DAYS)
+### `internal/anilist/`
 
-```go
-type Scheduler struct { ... }
+Paginated GraphQL client. 50 results/page. Rate limiting: 700 ms +
+jitter between requests, 5 s backoff after 429. 5 retries with exponential
+backoff. `FetchYear` returns all anime for a year regardless of season/format.
 
-func New(cache *cache.Cache, cfg *config.Config) *Scheduler
-func (s *Scheduler) LoadResolver()                          // sync load of anibridge mapping before server starts
-func (s *Scheduler) Prewarm(ctx context.Context) error      // synchronous warmup
-func (s *Scheduler) StartBackground(ctx context.Context)    // launches background goroutines
-func (s *Scheduler) FetchAndStore(ctx context.Context, season string, year int, category string) error // backfill on cache miss
-func (s *Scheduler) Refresh(ctx context.Context, season string, year int, category string) error
-```
+Show predicates (used by filters): `IsSeries`, `IsNew`, `SkipByDuration`,
+`HasTag`, `IsWithinMonths`, `IsWinterStart`, `DisplayTitle`.
 
-### `internal/mapping/anibridge.go` (New)
+### `internal/filter/`
 
-The `LoadOrFetch` function replaces the old `shinkro/community-mapping` YAML
-loader. Key design:
+All filtering is on-the-fly from cached raw data. Functions:
+`FilterBySeason` (with month-based fallback for empty season field),
+`FilterByFormats`, `Filter` (duration + tags), `FilterFuture`, `FilterFirstSeason`.
 
-- **Zstd-compressed JSON** — the anibridge dataset is ~8 MB compressed, ~80 MB
-  uncompressed. Parsed with `github.com/klauspost/compress/zstd`.
-- **Conditional HTTP** — a sidecar metadata file (`.meta.json`) stores ETag,
-  MD5, and key snapshots. On each load, a HEAD request checks the upstream
-  ETag; a match short-circuits the download.
-- **MD5 verification** — GitHub Release assets expose `x-ms-blob-content-md5`;
-  downloads are verified against this header. Mismatches are reported as errors.
-- **Key snapshots** — after each successful download, the MAL and AniList key
-  sets are persisted. On subsequent updates, a diff is logged:
-  `Updated anibridge database, 12 new, 3 removals, 18091 total entries`.
+### `internal/mapping/`
 
-```go
-func LoadOrFetch(ctx context.Context, path, url string) (*AnibridgeMapping, Metadata, error)
-func Head(ctx context.Context, url string) (Metadata, error)
-func Fetch(ctx context.Context, url string) ([]byte, Metadata, error)
-```
+Zstd-compressed JSON mapping (~8 MB compressed). `LoadOrFetch` uses conditional
+HTTP: HEAD for ETag match, full download on change, fallback to cache on error.
+MD5 verification against `x-ms-blob-content-md5` header. Atomic temp-file writes.
+TVDB extraction prefers `s1` scope, falls back to highest episode count.
 
-### `internal/mapping/resolve.go` (New)
+Resolver uses `atomic.Pointer[AnibridgeMapping]` — mapping swaps don't block
+in-flight lookups. Resolution order: MAL first, AniList fallback.
 
-The `Resolver` wraps the parsed `AnibridgeMapping` and provides safe concurrent
-access via `sync/atomic.Pointer`:
+### `cmd/server/main.go`
 
-- Prefers MAL→TVDB lookups
-- Falls back to AniList→TVDB when a show has no MAL ID or MAL lookup misses
-- `SetMapping` swaps the underlying pointer without blocking in-flight lookups
+Stdlib `net/http`. Startup: load config → open cache → load resolver → prewarm
+configured years (blocking) → start background goroutines → listen.
 
-```go
-type Resolver struct { mapping atomic.Pointer[AnibridgeMapping] }
+Graceful shutdown: cancel context → `server.Shutdown(10s)` → `sched.Wait(5s)`.
 
-func NewResolver() *Resolver
-func (r *Resolver) SetMapping(m *AnibridgeMapping)
-func (r *Resolver) Mapping() *AnibridgeMapping
-func (r *Resolver) Resolve(s anilist.Show) (int, bool)
-func (r *Resolver) ResolveBatch(shows []anilist.Show) map[int]ResolvedShow
-```
+Endpoints: `/list`, `/health`, `/cache/stats`, `/cache/clear`. Middleware:
+logging (method, path, status, duration) and panic recovery.
 
-### `cmd/server/main.go` (Existing)
-
-HTTP server using `net/http` (stdlib, no framework):
-
-- `GET /list` — handler that calls cache.Get, triggers async backfill on miss
-  for non-prewarmed data, returns JSON
-- `GET /health` — returns `{"status":"ok"}`
-- `GET /cache/stats` — returns cache stats JSON (debug endpoint)
-- Synchronous prewarm on startup (blocking, before `ListenAndServe`)
-- Graceful shutdown on SIGTERM/SIGINT
-- Structured logging via `log/slog`
-
-### Refreshing Logic
-
-The core fetch → filter → resolve pipeline:
-
-1. `anilist.Client.FetchSeason(ctx, season, year, max, formats)` — paginated GraphQL
-2. `winter overflow` logic for WINTER seasons (merges December-starting shows
-   from the previous year's winter)
-3. `filterSeries(shows)` — filters to TV/ONA formats only
-4. `filterWinterMonth(shows, season)` — for WINTER seasons, restricts to shows
-   starting December–March
-5. `filter.Filter(shows, cfg)` — duration ≤10 min exclusion, blacklist (MAL ID
-   or title substring), AniList tag exclusion
-6. `filter.FilterFuture(shows, months)` — drops shows starting more than N
-   months in the future
-7. `mapping.Resolver.ResolveBatch(shows)` — resolves via MAL first, then
-   AniList fallback
-8. Marshal to `[]Show` JSON, store in cache
-
-For `series-new` category, the same pipeline runs and then shows with
-`PREQUEL` or `PARENT` relations are excluded (handled server-side in
-`scheduler.processSeason`).
-
-## Docker Build
-
-Multi-stage Dockerfile:
+## Docker
 
 ```dockerfile
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
-ARG TARGETOS TARGETARCH
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-  go build -ldflags="-s -w" -o /server ./cmd/server
+COPY . . && RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o /server ./cmd/server
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates shadow su-exec
+RUN apk add --no-cache ca-certificates su-exec wget
 COPY --from=builder /server /server
 COPY entrypoint.sh /entrypoint.sh
 EXPOSE 8080
 VOLUME ["/data"]
+HEALTHCHECK --interval=30s CMD wget --spider http://localhost:8080/health || exit 1
 ENTRYPOINT ["/entrypoint.sh"]
 ```
 
-CI workflow (`publish.yml`) builds for `linux/amd64` and `linux/arm64` using
-`docker/setup-qemu` and `docker/build-push-action`.
+CI builds `linux/amd64` and `linux/arm64`.
 
 ## Dependencies
 
-- `modernc.org/sqlite` — pure-Go SQLite (no CGO)
-- `github.com/klauspost/compress/zstd` — zstd decompression for anibridge mapping
-- No other external runtime dependencies
+| Direct | Purpose |
+|--------|---------|
+| `modernc.org/sqlite` | Pure-Go SQLite |
+| `github.com/klauspost/compress/zstd` | Zstd decompression |
+
+(Plus indirect transitive deps from sqlite.)
 
 ## File Layout
 
-| Path | Notes |
-|------|-------|
-| `cmd/server/main.go` | HTTP server entry point |
-| `internal/config/config.go` | Env-var configuration |
-| `internal/cache/cache.go` | SQLite cache layer |
-| `internal/scheduler/scheduler.go` | Background refresh goroutines |
+| Path | Purpose |
+|------|---------|
+| `cmd/server/main.go` | HTTP server entrypoint |
+| `internal/config/config.go` | Env-var config |
+| `internal/cache/cache.go` | SQLite year cache |
+| `internal/scheduler/scheduler.go` | Pipeline + background workers |
 | `internal/anilist/anilist.go` | AniList GraphQL client |
-| `internal/filter/filter.go` | Show filtering pipeline |
-| `internal/mapping/anibridge.go` | AniBridge mapping loader / parser / HTTP |
-| `internal/mapping/resolve.go` | Thread-safe TVDB ID resolver |
+| `internal/filter/filter.go` | On-the-fly filtering |
+| `internal/mapping/anibridge.go` | Mapping loader/parser |
+| `internal/mapping/resolve.go` | TVDB resolver |
+| `internal/testutil/testutil.go` | Shared test helpers |
 | `entrypoint.sh` | PUID/PGID privilege drop |
-| `Dockerfile` | Multi-stage, multi-arch build |
+| `Dockerfile` | Multi-stage multi-arch build |
 | `docker-compose.yml` | Quick-start composition |
-| `.github/workflows/publish.yml` | CI/CD: test, version, build, publish |
-
-## Testing
-
-- `go test ./...` must pass
-- `internal/cache/` tests with in-memory SQLite
-- `internal/mapping/` tests with zstd fixtures, HTTP test servers, and metadata I/O
-- `internal/anilist/` tests cover show predicates (IsSeries, IsNew, IsWinterStart, etc.)
-- `internal/scheduler/` tests cover series filtering, winter-month filtering, and first-season filtering
-- `internal/filter/` tests cover duration, blacklist, tag exclusion, and future-date filters
