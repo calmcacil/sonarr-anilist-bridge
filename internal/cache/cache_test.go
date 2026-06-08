@@ -171,7 +171,7 @@ func TestNeedsRefresh(t *testing.T) {
 	c.Set("SPRING", 2026, "series", []byte(`[]`))
 
 	// Entries just created should NOT need refresh
-	keys, err := c.NeedsRefresh(2026, 7, 30, "")
+	keys, err := c.NeedsRefresh(2026, 7, 30, "", true)
 	if err != nil {
 		t.Fatalf("NeedsRefresh: %v", err)
 	}
@@ -189,10 +189,10 @@ func TestNeedsRefresh_MappingVersionMismatch(t *testing.T) {
 	}
 	defer c.Close()
 
-	c.SetWithVersion("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`), "v1")
+	c.SetWithVersion("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`), "v1", true)
 
 	// Same version → no refresh needed
-	keys, err := c.NeedsRefresh(2026, 7, 30, "v1")
+	keys, err := c.NeedsRefresh(2026, 7, 30, "v1", true)
 	if err != nil {
 		t.Fatalf("NeedsRefresh: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestNeedsRefresh_MappingVersionMismatch(t *testing.T) {
 	}
 
 	// Different version → needs refresh
-	keys, err = c.NeedsRefresh(2026, 7, 30, "v2")
+	keys, err = c.NeedsRefresh(2026, 7, 30, "v2", true)
 	if err != nil {
 		t.Fatalf("NeedsRefresh: %v", err)
 	}

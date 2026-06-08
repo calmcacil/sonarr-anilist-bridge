@@ -132,8 +132,13 @@ func (s *Scheduler) Prewarm(ctx context.Context) error {
 	for _, year := range s.cfg.PrewarmYears {
 		for _, season := range s.cfg.PrewarmSeasons {
 			for _, category := range []string{"series", "series-new"} {
-				if s.cache.Exists(season, year, category) {
+				matches, err := s.cache.FilterFutureEnabledMatches(season, year, category, s.cfg.FilterFutureEnabled)
+				if err == nil && matches {
 					continue
+				}
+				if err != nil {
+					slog.Debug("cache entry needs refresh (filter_future_enabled mismatch or missing)",
+						"season", season, "year", year, "category", category)
 				}
 				slog.Info("prewarming", "season", season, "year", year, "category", category)
 				if err := s.refresh(ctx, season, year, category); err != nil {
@@ -254,7 +259,7 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 		return fmt.Errorf("marshal shows: %w", err)
 	}
 
-	if err := s.cache.SetWithVersion(season, year, category, data, s.MappingVersion()); err != nil {
+	if err := s.cache.SetWithVersion(season, year, category, data, s.MappingVersion(), s.cfg.FilterFutureEnabled); err != nil {
 		return fmt.Errorf("cache set: %w", err)
 	}
 
@@ -374,7 +379,7 @@ func (s *Scheduler) resolveShows(shows []anilist.Show) []Show {
 
 func (s *Scheduler) refreshStale(ctx context.Context) {
 	currentYear := time.Now().Year()
-	keys, err := s.cache.NeedsRefresh(currentYear, 7, 30, s.MappingVersion())
+	keys, err := s.cache.NeedsRefresh(currentYear, 7, 30, s.MappingVersion(), s.cfg.FilterFutureEnabled)
 	if err != nil {
 		slog.Error("needs refresh query failed", "error", err)
 		return
