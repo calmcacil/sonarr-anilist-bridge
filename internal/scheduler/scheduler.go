@@ -451,3 +451,4 @@ func (s *Scheduler) logCacheStats() {
 		"hit_rate", fmt.Sprintf("%.1f%%", hitRate),
 	)
 }
+
