@@ -15,16 +15,14 @@ import (
 	"github.com/calmcacil/sonarr-anime-bridge/internal/mapping"
 )
 
-
 type Scheduler struct {
 	cache    *cache.Cache
 	cfg      *config.Config
 	client   *anilist.Client
 	resolver *mapping.Resolver
 
-	wg         sync.WaitGroup
-	inflightMu sync.Mutex
-	inflight   map[string]bool
+	wg       sync.WaitGroup
+	inflight sync.Map
 }
 
 type Show struct {
@@ -32,61 +30,19 @@ type Show struct {
 	Title  string `json:"title,omitempty"`
 }
 
-type processResult struct {
-	Shows          []Show
-	AniListTotal   int
-	AfterOverflow  int
-	AfterWinter    int
-	AfterSeries    int
-	AfterFilter    int
-	AfterFuture    int
-	AfterFirst     int
-	Resolved       int
-	Duration       time.Duration
-}
-
-func (r processResult) LogVals(season string, year int) []any {
-	return []any{
-		"season", season,
-		"year", year,
-		"anilist", r.AniListTotal,
-		"overflow", r.AfterOverflow,
-		"winter", r.AfterWinter,
-		"series", r.AfterSeries,
-		"filtered", r.AfterFilter,
-		"future", r.AfterFuture,
-		"first", r.AfterFirst,
-		"resolved", r.Resolved,
-		"duration", r.Duration,
-	}
-}
-
 func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 	return &Scheduler{
-		cache:  c,
-		cfg:    cfg,
+		cache:    c,
+		cfg:      cfg,
 		client:   anilist.NewWithTimeout(30 * time.Second),
 		resolver: mapping.NewResolver(),
-		inflight: make(map[string]bool),
 	}
 }
 
-// ResolverLoaded reports whether the anibridge mapping has been loaded.
 func (s *Scheduler) ResolverLoaded() bool {
-	return s.resolver != nil && s.resolver.Mapping() != nil
+	return s.resolver.Mapping() != nil
 }
 
-// MappingVersion returns a content-based hash of the current anibridge
-// mapping. Returns empty string if no mapping is loaded.
-func (s *Scheduler) MappingVersion() string {
-	if !s.ResolverLoaded() {
-		return ""
-	}
-	return cache.MappingVersion(s.resolver.Mapping())
-}
-
-// LoadResolver loads the anibridge mapping synchronously. Must be called
-// before any Resolve / ResolveBatch call.
 func (s *Scheduler) LoadResolver() {
 	path := s.cfg.AnibridgeMappingPath
 	upstream := s.cfg.AnibridgeURL
@@ -98,9 +54,6 @@ func (s *Scheduler) LoadResolver() {
 	s.resolver.SetMapping(m)
 }
 
-// StartBackground launches background refresh goroutines: stale entry
-// refresh (every 10 min) and mapping refresh (every 1 h). Does not
-// block; the caller should Prewarm synchronously before calling this.
 func (s *Scheduler) StartBackground(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
@@ -118,7 +71,7 @@ func (s *Scheduler) StartBackground(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.refreshStale(ctx)
+				s.refreshStaleYears(ctx)
 				s.prune(ctx)
 				s.logCacheStats(ctx)
 			}
@@ -159,270 +112,101 @@ func (s *Scheduler) refreshMapping(ctx context.Context) {
 func (s *Scheduler) Prewarm(ctx context.Context) error {
 	var firstErr error
 	for _, year := range s.cfg.PrewarmYears {
-		for _, season := range s.cfg.PrewarmSeasons {
-			for _, category := range []string{"series", "series-new"} {
-				matches, err := s.cache.FilterFutureEnabledMatches(season, year, category, s.cfg.FilterFutureEnabled)
-				if err == nil && matches {
-					continue
-				}
-				if err != nil {
-					slog.Debug("cache entry needs refresh (filter_future_enabled mismatch or missing)",
-						"season", season, "year", year, "category", category)
-				}
-				slog.Info("prewarming", "season", season, "year", year, "category", category)
-				if err := s.refresh(ctx, season, year, category); err != nil {
-					slog.Error("prewarm failed", "season", season, "year", year, "category", category, "error", err)
-					if firstErr == nil {
-						firstErr = err
-					}
-				}
+		slog.Info("prewarming", "year", year)
+		if err := s.FetchAndStore(ctx, year); err != nil {
+			slog.Error("prewarm failed", "year", year, "error", err)
+			if firstErr == nil {
+				firstErr = err
 			}
 		}
 	}
 	return firstErr
 }
 
-func (s *Scheduler) Refresh(ctx context.Context, season string, year int, category string) error {
-	return s.refresh(ctx, season, year, category)
-}
-
-// StartRefresh spawns a refresh goroutine with deduplication. If a refresh
-// for the same (season, year, category) is already in flight, this is a no-op.
-func (s *Scheduler) StartRefresh(ctx context.Context, season string, year int, category string) {
-	key := refreshKey(season, year, category)
-
-	s.inflightMu.Lock()
-	if s.inflight[key] {
-		s.inflightMu.Unlock()
-		slog.Debug("refresh already in-flight, skipping",
-			"season", season, "year", year, "category", category)
-		return
-	}
-	s.inflight[key] = true
-	s.wg.Add(1)
-	s.inflightMu.Unlock()
-	go func() {
-		defer s.wg.Done()
-		defer func() {
-			s.inflightMu.Lock()
-			delete(s.inflight, key)
-			s.inflightMu.Unlock()
-		}()
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("panic in refresh goroutine", "season", season, "year", year, "category", category, "recover", r)
-			}
-		}()
-		if err := s.refresh(ctx, season, year, category); err != nil {
-			slog.Error("refresh failed", "season", season, "year", year, "category", category, "error", err)
-		}
-	}()
-}
-
-// Wait blocks until all background goroutines complete, or until the context
-// is cancelled. Call after server.Shutdown to ensure in-flight operations finish.
-func (s *Scheduler) Wait(ctx context.Context) error {
-	ch := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(ch)
-	}()
-	select {
-	case <-ch:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func refreshKey(season string, year int, category string) string {
-	return fmt.Sprintf("%s/%d/%s", season, year, category)
-}
-
-func (s *Scheduler) FetchAndStore(ctx context.Context, season string, year int, category string) error {
-	inserted, err := s.cache.SetEmptyIfNotExists(season, year, category)
-	if err != nil {
-		return fmt.Errorf("set pending marker: %w", err)
-	}
-	if !inserted {
-		// Entry already exists (pending or cached). The background
-		// refresh loop will retry stale pending entries, so no
-		// need to fire off a duplicate fetch.
-		return nil
-	}
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("panic in backfill refresh", "season", season, "year", year, "category", category, "recover", r)
-			}
-		}()
-		if err := s.refresh(context.WithoutCancel(ctx), season, year, category); err != nil {
-			slog.Error("backfill refresh failed", "season", season, "year", year, "category", category, "error", err)
-		}
-	}()
-	return nil
-}
-
-func (s *Scheduler) refresh(ctx context.Context, season string, year int, category string) error {
-	start := time.Now()
-	seasons := []string{season}
-	if season == "ALL" {
-		seasons = config.AllSeasons()
+func (s *Scheduler) Process(rawData []byte, season string, year int, category string) ([]Show, error) {
+	var shows []anilist.Show
+	if err := json.Unmarshal(rawData, &shows); err != nil {
+		return nil, fmt.Errorf("unmarshal year data: %w", err)
 	}
 
-	allShows := make([]Show, 0)
-	formats := s.cfg.IncludeTypes
-
-	for _, ssn := range seasons {
-		res, err := s.processSeason(ctx, ssn, year, formats, category)
-		if err != nil {
-			slog.Error("season fetch failed", "season", ssn, "year", year, "error", err)
-			continue
-		}
-		if res.Duration > 0 {
-			slog.Info("season_fetched", res.LogVals(ssn, year)...)
-		}
-		allShows = append(allShows, res.Shows...)
-	}
-
-	data, err := json.Marshal(allShows)
-	if err != nil {
-		return fmt.Errorf("marshal shows: %w", err)
-	}
-
-	if err := s.cache.Set(season, year, category, data, s.MappingVersion(), s.cfg.FilterFutureEnabled); err != nil {
-		return fmt.Errorf("cache set: %w", err)
-	}
-
-	slog.Info("season_cached",
-		"season", season,
-		"year", year,
-		"category", category,
-		"shows", len(allShows),
-		"mapping_version", s.MappingVersion()[:12],
-		"duration", time.Since(start),
-	)
-	return nil
-}
-
-func (s *Scheduler) fetchOrGetCachedAniList(ctx context.Context, season string, year int, formats []string) ([]anilist.Show, error) {
-	rawData, fresh, ok := s.cache.GetAniList(season, year)
-	if ok && fresh {
-		var shows []anilist.Show
-		if err := json.Unmarshal(rawData, &shows); err != nil {
-			return nil, fmt.Errorf("unmarshal cached anilist data: %w", err)
-		}
-		slog.Debug("using cached AniList data", "season", season, "year", year)
-		return shows, nil
-	}
-
-	shows, err := s.client.FetchSeason(ctx, season, year, s.cfg.MaxPerSeason, formats)
-	if err != nil {
+	if season == "WINTER" {
+		prevData, _, ok := s.cache.GetYear(year - 1)
 		if ok {
-			slog.Warn("AniList fetch failed, using stale cache", "season", season, "year", year, "error", err)
-			var cached []anilist.Show
-			if uerr := json.Unmarshal(rawData, &cached); uerr == nil {
-				return cached, nil
+			var prevShows []anilist.Show
+			if err := json.Unmarshal(prevData, &prevShows); err == nil {
+				prevShows = filter.FilterBySeason(prevShows, "WINTER")
+				seen := make(map[int]bool, len(shows))
+				for _, sh := range shows {
+					seen[sh.ID] = true
+				}
+				for _, sh := range prevShows {
+					if seen[sh.ID] {
+						continue
+					}
+					if sh.StartDate.Month == nil || *sh.StartDate.Month != 12 {
+						continue
+					}
+					shows = append(shows, sh)
+					seen[sh.ID] = true
+				}
 			}
 		}
-		return nil, fmt.Errorf("fetch season %s %d: %w", season, year, err)
 	}
 
-	data, err := json.Marshal(shows)
-	if err != nil {
-		return nil, fmt.Errorf("marshal anilist data: %w", err)
-	}
-	if err := s.cache.SetAniList(season, year, data); err != nil {
-		slog.Warn("failed to cache AniList data", "season", season, "year", year, "error", err)
+	if season != "ALL" {
+		shows = filter.FilterBySeason(shows, season)
 	}
 
-	return shows, nil
-}
-
-func (s *Scheduler) processSeason(ctx context.Context, season string, year int, formats []string, category string) (processResult, error) {
-	start := time.Now()
-
-	shows, err := s.fetchOrGetCachedAniList(ctx, season, year, formats)
-	if err != nil {
-		return processResult{}, fmt.Errorf("fetch season %s %d: %w", season, year, err)
-	}
-
-	r := processResult{AniListTotal: len(shows)}
-
-	if season == "WINTER" {
-		shows = s.fetchWinterOverflow(ctx, year, formats, shows)
-	}
-	r.AfterOverflow = len(shows)
-
-	if season == "WINTER" {
-		shows = filter.FilterWinterMonth(shows)
-	}
-	r.AfterWinter = len(shows)
-
-	shows = filter.FilterSeries(shows)
-	r.AfterSeries = len(shows)
+	shows = filter.FilterByFormats(shows, s.cfg.IncludeTypes)
 
 	shows = filter.Filter(shows, filter.Config{
 		ExcludeTags: s.cfg.ExcludeTags,
 	})
-	r.AfterFilter = len(shows)
 
 	if s.cfg.FilterFutureEnabled {
 		shows = filter.FilterFuture(shows, 3)
 	}
-	r.AfterFuture = len(shows)
 
 	if category == "series-new" {
 		shows = filter.FilterFirstSeason(shows)
 	}
-	r.AfterFirst = len(shows)
 
-	resolved := s.resolveShows(shows)
-	r.Resolved = len(resolved)
-	r.Shows = resolved
-	r.Duration = time.Since(start)
-
-	return r, nil
+	return s.resolveShows(shows), nil
 }
 
-func (s *Scheduler) fetchWinterOverflow(ctx context.Context, year int, formats []string, shows []anilist.Show) []anilist.Show {
-	overflowYear := year - 1
-	overflow, err := s.fetchOrGetCachedAniList(ctx, "WINTER", overflowYear, formats)
+func (s *Scheduler) FetchAndStore(ctx context.Context, year int) error {
+	if _, loaded := s.inflight.LoadOrStore(year, true); loaded {
+		slog.Debug("year fetch already in-flight, skipping", "year", year)
+		return nil
+	}
+	defer s.inflight.Delete(year)
+
+	shows, err := s.client.FetchYear(ctx, year, s.cfg.MaxPerSeason)
 	if err != nil {
-		slog.Warn("winter overflow fetch failed", "year", overflowYear, "error", err)
-		return shows
+		return fmt.Errorf("fetch year %d: %w", year, err)
 	}
 
-	seen := make(map[int]bool, len(shows))
-	for _, sh := range shows {
-		seen[sh.ID] = true
+	data, err := json.Marshal(shows)
+	if err != nil {
+		return fmt.Errorf("marshal year %d: %w", year, err)
 	}
 
-	var added int
-	for _, sh := range overflow {
-		if sh.StartDate.Month != nil && *sh.StartDate.Month == 12 && !seen[sh.ID] {
-			shows = append(shows, sh)
-			seen[sh.ID] = true
-			added++
-		}
+	if err := s.cache.SetYear(year, data); err != nil {
+		return fmt.Errorf("cache set year %d: %w", year, err)
 	}
 
-	if added > 0 {
-		slog.Debug("winter overflow merged", "year", year, "overflow_year", overflowYear, "added", added, "total", len(shows))
-	}
-
-	return shows
+	slog.Info("year_cached", "year", year, "shows", len(shows))
+	return nil
 }
 
 func (s *Scheduler) resolveShows(shows []anilist.Show) []Show {
-	if s.resolver == nil {
+	m := s.resolver.Mapping()
+	if m == nil {
 		slog.Warn("resolver not yet loaded, skipping resolution")
 		return make([]Show, 0)
 	}
 	resolved := s.resolver.ResolveBatch(shows)
-	out := make([]Show, 0)
+	out := make([]Show, 0, len(shows))
 	for _, show := range shows {
 		if r, ok := resolved[show.ID]; ok && r.Resolved {
 			out = append(out, Show{TVDBID: r.TVDBID, Title: r.Title})
@@ -431,17 +215,17 @@ func (s *Scheduler) resolveShows(shows []anilist.Show) []Show {
 	return out
 }
 
-func (s *Scheduler) refreshStale(ctx context.Context) {
+func (s *Scheduler) refreshStaleYears(ctx context.Context) {
 	currentYear := time.Now().Year()
-	keys, err := s.cache.NeedsRefresh(currentYear, 7, 30, s.MappingVersion(), s.cfg.FilterFutureEnabled)
+	years, err := s.cache.NeedsRefreshYears(currentYear, 1, 7)
 	if err != nil {
 		slog.Error("needs refresh query failed", "error", err)
 		return
 	}
-	for _, key := range keys {
-		slog.Info("refreshing stale", "season", key.Season, "year", key.Year, "category", key.Category)
-		if err := s.refresh(ctx, key.Season, key.Year, key.Category); err != nil {
-			slog.Error("stale refresh failed", "season", key.Season, "year", key.Year, "category", key.Category, "error", err)
+	for _, year := range years {
+		slog.Info("refreshing stale year", "year", year)
+		if err := s.FetchAndStore(ctx, year); err != nil {
+			slog.Error("stale year refresh failed", "year", year, "error", err)
 		}
 	}
 }
@@ -450,7 +234,7 @@ func (s *Scheduler) prune(ctx context.Context) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
-	n, err := s.cache.PruneStale(14)
+	n, err := s.cache.PruneStaleYears(14)
 	if err != nil {
 		slog.Error("prune failed", "error", err)
 		return
@@ -468,9 +252,23 @@ func (s *Scheduler) logCacheStats(ctx context.Context) {
 		return
 	}
 	stats := s.cache.Stats()
-	slog.Info("cache stats",
+	slog.Debug("cache stats",
 		"entries", stats.Entries,
 		"hits", stats.Hits,
 		"misses", stats.Misses,
 	)
+}
+
+func (s *Scheduler) Wait(ctx context.Context) error {
+	ch := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(ch)
+	}()
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

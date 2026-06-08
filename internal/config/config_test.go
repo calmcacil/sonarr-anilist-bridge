@@ -6,87 +6,11 @@ import (
 	"time"
 )
 
-func TestResolveSeasons_All(t *testing.T) {
-	t.Parallel()
-
-	got := ResolveSeasons([]string{"all"})
-	want := []string{"WINTER", "SPRING", "SUMMER", "FALL"}
-	if len(got) != len(want) {
-		t.Fatalf("expected %d seasons, got %d: %v", len(want), len(got), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("season[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
-func TestResolveSeasons_AllCaseInsensitive(t *testing.T) {
-	t.Parallel()
-
-	got := ResolveSeasons([]string{"ALL"})
-	if len(got) != 4 {
-		t.Errorf("expected 4 seasons for ALL, got %d", len(got))
-	}
-}
-
-func TestResolveSeasons_Specific(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"winter", "WINTER"},
-		{"WINTER", "WINTER"},
-		{"Spring", "SPRING"},
-		{"summer", "SUMMER"},
-		{"FALL", "FALL"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			got := ResolveSeasons([]string{tc.input})
-			if len(got) != 1 || got[0] != tc.want {
-				t.Errorf("ResolveSeasons(%q) = %v, want [%q]", tc.input, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestResolveSeasons_Empty(t *testing.T) {
-	t.Parallel()
-
-	got := ResolveSeasons(nil)
-	if len(got) != 4 {
-		t.Errorf("expected 4 seasons for nil, got %d: %v", len(got), got)
-	}
-
-	got2 := ResolveSeasons([]string{})
-	if len(got2) != 4 {
-		t.Errorf("expected 4 seasons for empty slice, got %d: %v", len(got2), got2)
-	}
-}
-
-func TestAllSeasons(t *testing.T) {
-	t.Parallel()
-
-	got := AllSeasons()
-	want := []string{"WINTER", "SPRING", "SUMMER", "FALL"}
-	if len(got) != len(want) {
-		t.Fatalf("expected %d seasons, got %d", len(want), len(got))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("AllSeasons[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
 func TestLoad_Defaults(t *testing.T) {
 	for _, key := range []string{
 		"PORT", "MAX_PER_SEASON", "CACHE_DB_PATH", "LOG_LEVEL",
-		"PREWARM_YEARS", "PREWARM_SEASONS", "INCLUDE_TYPES", "EXCLUDE_TAGS",
-		"MAPPING_PATH", "MAPPING_URL",
+		"PREWARM_YEARS", "INCLUDE_TYPES", "EXCLUDE_TAGS",
+		"MAPPING_PATH", "MAPPING_URL", "FILTER_FUTURE_ENABLED",
 	} {
 		os.Unsetenv(key)
 	}
@@ -114,6 +38,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.ExcludeTags != nil {
 		t.Errorf("ExcludeTags = %v, want nil", cfg.ExcludeTags)
 	}
+	if !cfg.FilterFutureEnabled {
+		t.Error("FilterFutureEnabled default should be true")
+	}
 	if cfg.AnibridgeMappingPath != DefaultAnibridgeMappingPath {
 		t.Errorf("AnibridgeMappingPath = %q, want %q", cfg.AnibridgeMappingPath, DefaultAnibridgeMappingPath)
 	}
@@ -124,8 +51,8 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_EnvOverrides(t *testing.T) {
 	keys := []string{
-		"PORT", "MAX_PER_SEASON", "LOG_LEVEL", "PREWARM_YEARS", "PREWARM_SEASONS",
-		"INCLUDE_TYPES", "EXCLUDE_TAGS", "MAPPING_PATH", "MAPPING_URL",
+		"PORT", "MAX_PER_SEASON", "LOG_LEVEL", "PREWARM_YEARS",
+		"INCLUDE_TYPES", "EXCLUDE_TAGS", "MAPPING_PATH", "MAPPING_URL", "FILTER_FUTURE_ENABLED",
 	}
 	for _, key := range keys {
 		os.Unsetenv(key)
@@ -135,11 +62,11 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	os.Setenv("MAX_PER_SEASON", "50")
 	os.Setenv("LOG_LEVEL", "debug")
 	os.Setenv("PREWARM_YEARS", "2025,2026")
-	os.Setenv("PREWARM_SEASONS", "winter,spring")
 	os.Setenv("INCLUDE_TYPES", "TV")
 	os.Setenv("EXCLUDE_TAGS", "hentai,guro")
 	os.Setenv("MAPPING_PATH", "/custom/mapping.json.zst")
 	os.Setenv("MAPPING_URL", "https://example.com/mappings.json.zst")
+	os.Setenv("FILTER_FUTURE_ENABLED", "false")
 	t.Cleanup(func() {
 		for _, key := range keys {
 			os.Unsetenv(key)
@@ -160,14 +87,14 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	if len(cfg.PrewarmYears) != 2 || cfg.PrewarmYears[0] != 2025 || cfg.PrewarmYears[1] != 2026 {
 		t.Errorf("PrewarmYears = %v, want [2025 2026]", cfg.PrewarmYears)
 	}
-	if len(cfg.PrewarmSeasons) != 2 || cfg.PrewarmSeasons[0] != "WINTER" || cfg.PrewarmSeasons[1] != "SPRING" {
-		t.Errorf("PrewarmSeasons = %v, want [WINTER SPRING]", cfg.PrewarmSeasons)
-	}
 	if len(cfg.IncludeTypes) != 1 || cfg.IncludeTypes[0] != "TV" {
 		t.Errorf("IncludeTypes = %v, want [TV]", cfg.IncludeTypes)
 	}
 	if len(cfg.ExcludeTags) != 2 || cfg.ExcludeTags[0] != "HENTAI" || cfg.ExcludeTags[1] != "GURO" {
 		t.Errorf("ExcludeTags = %v, want [HENTAI GURO]", cfg.ExcludeTags)
+	}
+	if cfg.FilterFutureEnabled {
+		t.Error("FilterFutureEnabled should be false")
 	}
 	if cfg.AnibridgeMappingPath != "/custom/mapping.json.zst" {
 		t.Errorf("AnibridgeMappingPath = %q, want /custom/mapping.json.zst", cfg.AnibridgeMappingPath)

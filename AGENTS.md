@@ -2,6 +2,19 @@
 
 Project-specific rules for coding agents working on this repo.
 
+## Key Architecture (year-cache + on-the-fly filtering)
+
+- **Cache**: single `year_cache(year)` table stores raw AniList JSON per year
+- **Filtering**: `FilterBySeason`, `FilterByFormats`, duration, tags, future-date,
+  and first-season filters all applied on-the-fly per request from cached data
+- **Resolution**: TVDB IDs resolved on-the-fly via in-memory anibridge mapping
+  (no `mapping_version` tracking needed — mapping updates apply immediately)
+- **Winter overflow**: December-starting shows from prior year's WINTER season
+  merged on WINTER requests. First WINTER request triggers async backfill for
+  prior year if not yet cached. Subsequent requests include the overflow shows.
+- **No more `PREWARM_SEASONS`** — the server fetches full year data from AniList
+  and splits by season locally using the `season` field from the API.
+
 ## Before Pull Request
 
 - Run the full regression suite before creating any PR:
@@ -32,6 +45,10 @@ This builds both the current-tree (candidate) and the latest release tag
 endpoints, and compares the tvdbId output sets. Exit code is zero when
 data matches, non-zero when differences are found.
 
+The script handles winter overflow automatically: it makes a warmup WINTER
+request that triggers the prior-year backfill, waits for it to complete,
+then captures the final output for comparison.
+
 ### Manual step-by-step
 
 ```bash
@@ -45,11 +62,11 @@ cd /tmp/sab-ref-worktree
 go build -ldflags="-s -w" -o /tmp/sab-ref-server ./cmd/server
 cd - && git worktree remove /tmp/sab-ref-worktree
 
-# 3. Start candidate
+# 3. Start candidate (no PREWARM_SEASONS — fetches full year)
 CAND_DATA=$(mktemp -d)
 PORT=18081 CACHE_DB_PATH="$CAND_DATA/cache.db" \
   MAPPING_PATH="$CAND_DATA/mappings.json.zst" \
-  PREWARM_YEARS="$(date +%Y)" PREWARM_SEASONS="winter" \
+  PREWARM_YEARS="$(date +%Y)" \
   /tmp/sab-cand-server &
 
 # 4. Start reference
@@ -59,16 +76,25 @@ PORT=18082 CACHE_DB_PATH="$REF_DATA/cache.db" \
   PREWARM_YEARS="$(date +%Y)" PREWARM_SEASONS="winter" \
   /tmp/sab-ref-server &
 
-# 5. Wait for both to be healthy (up to 40s)
-for i in $(seq 1 40); do
+# 5. Wait for both to be healthy (up to 90s — full-year fetch takes longer)
+for i in $(seq 1 90); do
   curl -sf http://localhost:18081/health >/dev/null 2>&1 && \
     curl -sf http://localhost:18082/health >/dev/null 2>&1 && break
   sleep 1
 done
 
-# 6-9. Same curl commands as the Docker procedure using both ports
-# 10. Graceful shutdown (kill both PIDs)
-# 11. Compare tvdbId sets with diff
+# 6. Warmup: trigger winter overflow backfill for prior year
+curl -s "http://localhost:18081/list?season=WINTER&year=$(date +%Y)" > /dev/null
+for i in $(seq 1 90); do
+  entries=$(curl -sf "http://localhost:18081/cache/stats" | python3 -c \
+    "import sys,json;print(json.load(sys.stdin)['Entries'])" 2>/dev/null || echo 0)
+  [ "$entries" -ge 2 ] && break
+  sleep 1
+done
+
+# 7-10. Same curl commands as the Docker procedure using both ports
+# 11. Graceful shutdown (kill both PIDs)
+# 12. Compare tvdbId sets with diff
 ```
 
 ### Data baseline comparison
@@ -101,7 +127,6 @@ docker run -d --name sab-regression \
   -e PUID="$(id -u)" \
   -e PGID="$(id -g)" \
   -e PREWARM_YEARS="$(date +%Y)" \
-  -e PREWARM_SEASONS="winter" \
   -p 18080:8080 \
   sonarr-anime-bridge:test
 
@@ -111,28 +136,37 @@ sleep 25
 # 4. Check health
 curl -sf http://localhost:18080/health | python3 -m json.tool
 
-# 5. Capture full output for both categories
+# 5. Warmup: trigger winter overflow backfill for prior year
+curl -s "http://localhost:18080/list?season=WINTER&year=$(date +%Y)" > /dev/null
+for i in $(seq 1 90); do
+  entries=$(curl -sf "http://localhost:18080/cache/stats" | python3 -c \
+    "import sys,json;print(json.load(sys.stdin)['Entries'])" 2>/dev/null || echo 0)
+  [ "$entries" -ge 2 ] && break
+  sleep 1
+done
+
+# 6. Capture full output for both categories (now with overflow data)
 curl -s "http://localhost:18080/list?season=WINTER&year=$(date +%Y)" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'series: {len(d)} shows'); [print(f'  {s[\"tvdbId\"]}  {s[\"title\"]}') for s in d[:5]]; print(f'  ... and {len(d)-5} more')"
 
 curl -s "http://localhost:18080/list?season=WINTER&year=$(date +%Y)&category=series-new" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'series-new: {len(d)} shows')"
 
-# 6. Cache stats (should show 2 entries after prewarm)
+# 7. Cache stats (should show 2 entries — current + prior year after warmup)
 curl -s http://localhost:18080/cache/stats | python3 -m json.tool
 
-# 7. Test non-prewarmed endpoint (backfill trigger)
+# 8. Test non-prewarmed endpoint (backfill trigger)
 curl -s "http://localhost:18080/list?season=SPRING&year=$(date +%Y)" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'backfill response: {len(d)} shows')"
 
-# 8. Test invalid input
+# 9. Test invalid input
 curl -s -w "HTTP %{http_code}\\n" "http://localhost:18080/list?season=INVALID&year=2026"
 
-# 9. Test graceful shutdown (no orphaned goroutines, no panics)
+# 10. Test graceful shutdown (no orphaned goroutines, no panics)
 docker stop sab-regression
 docker logs sab-regression 2>&1 | grep -E "shutting down|WARN.*goroutine|error|panic" || echo "No warnings — clean shutdown"
 
-# 10. Clean up
+# 11. Clean up
 docker rm sab-regression
 rm -rf "$DATA_DIR"
 ```
@@ -163,10 +197,18 @@ CAND_DATA=$(mktemp -d)
 docker run -d --name sab-cand \
   -v "$CAND_DATA":/data \
   -e PUID="$(id -u)" -e PGID="$(id -g)" \
-  -e PREWARM_YEARS="$(date +%Y)" -e PREWARM_SEASONS="winter" \
+  -e PREWARM_YEARS="$(date +%Y)" \
   -p 18083:8080 \
   sonarr-anime-bridge:test
 sleep 25
+# Warmup: trigger winter overflow
+curl -s "http://localhost:18083/list?season=WINTER&year=$(date +%Y)" > /dev/null
+for i in $(seq 1 90); do
+  entries=$(curl -sf "http://localhost:18083/cache/stats" | python3 -c \
+    "import sys,json;print(json.load(sys.stdin)['Entries'])" 2>/dev/null || echo 0)
+  [ "$entries" -ge 2 ] && break
+  sleep 1
+done
 curl -s "http://localhost:18083/list?season=WINTER&year=$(date +%Y)" | jq '[.[].tvdbId] | sort' > /tmp/sab-cand-tvdbids.json
 curl -s "http://localhost:18083/list?season=WINTER&year=$(date +%Y)&category=series-new" | jq '[.[].tvdbId] | sort' > /tmp/sab-cand-tvdbids-new.json
 docker stop sab-cand && docker rm sab-cand && rm -rf "$CAND_DATA"
@@ -175,15 +217,15 @@ docker stop sab-cand && docker rm sab-cand && rm -rf "$CAND_DATA"
 if diff /tmp/sab-ref-tvdbids.json /tmp/sab-cand-tvdbids.json; then
   echo "series: IDENTICAL to last release"
 else
-  ADDED=$(comm -13 /tmp/sab-ref-tvdbids.json /tmp/sab-cand-tvdbids.json | wc -l)
-  REMOVED=$(comm -23 /tmp/sab-ref-tvdbids.json /tmp/sab-cand-tvdbids.json | wc -l)
+  ADDED=$(comm -13 /tmp/sab-ref-tvdbids.json /tmp/sab-cand-tvdbids.json 2>/dev/null | wc -l)
+  REMOVED=$(comm -23 /tmp/sab-ref-tvdbids.json /tmp/sab-cand-tvdbids.json 2>/dev/null | wc -l)
   echo "series: $ADDED added, $REMOVED removed vs last release"
 fi
 if diff /tmp/sab-ref-tvdbids-new.json /tmp/sab-cand-tvdbids-new.json; then
   echo "series-new: IDENTICAL to last release"
 else
-  ADDED=$(comm -13 /tmp/sab-ref-tvdbids-new.json /tmp/sab-cand-tvdbids-new.json | wc -l)
-  REMOVED=$(comm -23 /tmp/sab-ref-tvdbids-new.json /tmp/sab-cand-tvdbids-new.json | wc -l)
+  ADDED=$(comm -13 /tmp/sab-ref-tvdbids-new.json /tmp/sab-cand-tvdbids-new.json 2>/dev/null | wc -l)
+  REMOVED=$(comm -23 /tmp/sab-ref-tvdbids-new.json /tmp/sab-cand-tvdbids-new.json 2>/dev/null | wc -l)
   echo "series-new: $ADDED added, $REMOVED removed vs last release"
 fi
 ```
