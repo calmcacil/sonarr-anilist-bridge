@@ -34,9 +34,7 @@ func newTestScheduler(t *testing.T, c *cache.Cache) *scheduler.Scheduler {
 	dir := t.TempDir()
 	cfg := &config.Config{
 		MaxPerSeason:         100,
-		IncludeONA:           false,
-		WinterOverflow:       true,
-		AnibridgeRefreshDays: 1,
+		IncludeTypes:         []string{"TV"},
 		AnibridgeMappingPath: dir + "/mappings.json.zst",
 	}
 	return scheduler.New(c, cfg)

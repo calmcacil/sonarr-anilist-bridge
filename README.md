@@ -43,22 +43,26 @@ All via environment variables:
 | `PORT` | `8080` | HTTP listen port |
 | `PREWARM_YEARS` | current year | CSV years to fetch at startup |
 | `PREWARM_SEASONS` | `all` | CSV seasons: `winter,spring,summer,fall` |
-| `MAX_PER_SEASON` | `100` | Max shows per season |
+| `MAX_PER_SEASON` | `100` | Max shows per season (clamped to 1–500) |
+| `INCLUDE_TYPES` | `TV,ONA` | Comma-separated AniList formats: `TV`, `ONA`, `TV_SHORT`, `OVA`, `SPECIAL`, `MOVIE` |
+| `EXCLUDE_TAGS` | — | Comma-separated AniList tags to exclude |
+| `MAPPING_PATH` | `/data/anibridge_mappings.json.zst` | Cached anibridge mapping file |
+| `MAPPING_URL` | GitHub release URL | Upstream anibridge mapping source |
 | `CACHE_DB_PATH` | `/data/cache.db` | SQLite file path |
-| `CACHE_STALE_DAYS` | `14` | Evict entries not hit in N days |
-| `REFRESH_CURRENT_DAYS` | `7` | Refresh interval, current year |
-| `REFRESH_PAST_DAYS` | `30` | Refresh interval, past years |
-| `ALG_ANILIST_TIMEOUT_MINUTES` | `10` | API timeout |
-| `ALG_ANILIST_INCLUDE_ONA` | `false` | Include ONA |
-| `ALG_ANILIST_WINTER_OVERFLOW` | `true` | Merge December premieres |
-| `ALG_ANILIST_EXCLUDE_TAGS` | — | Comma-separated tags to exclude |
-| `ALG_ANIBRIDGE_MAPPING_PATH` | `/data/anibridge_mappings.json.zst` | Cached anibridge mapping file |
-| `ALG_ANIBRIDGE_REFRESH_DAYS` | `1` | How often to check upstream for mapping updates |
-| `ALG_ANIBRIDGE_URL` | `https://github.com/anibridge/anibridge-mappings/releases/download/v3/mappings.json.zst` | Upstream anibridge URL |
-| `AHEAD_MONTHS` | `3` | Max months ahead for future shows (`ALG_ANILIST_AHEAD_MONTHS` also accepted) |
-| `PUID` | `1000` | User ID to drop privileges to (runtime, via docker-compose) |
-| `PGID` | `1000` | Group ID to drop privileges to (runtime, via docker-compose) |
-| `LOG_LEVEL` | `info` | debug/info/warn/error |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `PUID` | `1000` | User ID for file ownership (Docker only) |
+| `PGID` | `1000` | Group ID for file ownership (Docker only) |
+
+### Hardcoded values
+
+The following operational parameters have fixed defaults and are not configurable:
+
+- **HTTP timeout**: 30s (AniList API requests)
+- **Winter overflow**: always merges December premieres from the prior year
+- **Future filter**: 3 months ahead
+- **Cache refresh**: current year weekly, past years monthly
+- **Cache eviction**: 14 days since last access
+- **Mapping refresh**: daily
 
 ## How it works
 
@@ -71,7 +75,7 @@ All via environment variables:
    (duration, blacklist, tags, future dates) → resolves MAL/AniList IDs to TVDB IDs via
    anibridge mapping → stores in SQLite cache.
 6. **Background scheduler**: Refreshes stale entries (weekly for current year, monthly for
-   past), prunes entries not requested in `CACHE_STALE_DAYS`, and checks for upstream
+   past), prunes entries not requested in 14 days, and checks for upstream
    mapping updates daily.
 7. **Health check**: `GET /health` returns `{"status":"ok"}`.
 8. **Debug**: `GET /cache/stats` returns cache hit/miss/entry counts.
