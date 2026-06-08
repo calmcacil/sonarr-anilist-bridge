@@ -18,6 +18,8 @@ import (
 	"github.com/calmcacil/sonarr-anime-bridge/internal/scheduler"
 )
 
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -30,7 +32,8 @@ func run() error {
 
 	setupLogging(cfg.LogLevel)
 
-	slog.Info("starting sonarr-seasonal",
+	slog.Info("starting",
+		"version", version,
 		"port", cfg.Port,
 		"prewarm_years", cfg.PrewarmYears,
 	)
