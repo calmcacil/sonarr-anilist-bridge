@@ -157,7 +157,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 
 			data, fresh, ok = db.GetYear(year)
 			if !ok {
-				slog.Error("backfill succeeded but data still missing", "year", year)
+				slog.Warn("fetch completed but data still missing, returning empty", "year", year)
 				writeJSON(w, []byte("[]"))
 				return
 			}
