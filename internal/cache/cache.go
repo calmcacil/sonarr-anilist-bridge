@@ -113,68 +113,9 @@ func (c *Cache) Close() error {
 	return c.db.Close()
 }
 
-func (c *Cache) Get(season string, year int, category string) (data []byte, fresh bool, isPending bool, ok bool) {
-	var raw []byte
-	var isEmpty int
-	var fetchedAt int64
 
-	err := c.db.QueryRow(
-		`SELECT data, is_empty, fetched_at FROM season_cache WHERE season=? AND year=? AND category=?`,
-		season, year, category,
-	).Scan(&raw, &isEmpty, &fetchedAt)
 
-	if err != nil {
-		c.misses.Add(1)
-		return nil, false, false, false
-	}
-
-	c.hits.Add(1)
-
-	// Update last_hit
-	if _, err := c.db.Exec(
-		`UPDATE season_cache SET last_hit=? WHERE season=? AND year=? AND category=?`,
-		time.Now().Unix(), season, year, category,
-	); err != nil {
-		slog.Warn("failed to update last_hit", "error", err, "season", season, "year", year, "category", category)
-	}
-
-	if isEmpty == 1 && string(raw) != "[]" {
-		slog.Warn("empty entry missing placeholder data", "season", season, "year", year, "category", category)
-		return nil, false, false, false
-	}
-	if isEmpty == 0 && string(raw) == "[]" {
-		slog.Warn("non-empty entry has empty placeholder data", "season", season, "year", year, "category", category)
-		return nil, false, false, false
-	}
-
-	if isEmpty == 1 {
-		return nil, false, true, true
-	}
-
-	if !json.Valid(raw) {
-		slog.Warn("invalid JSON in cache entry", "season", season, "year", year, "category", category)
-		return nil, false, false, false
-	}
-
-	freshnessThreshold := c.pastYearFreshness
-	if year == time.Now().Year() {
-		freshnessThreshold = c.currentYearFreshness
-	}
-	fresh = time.Since(time.Unix(fetchedAt, 0)) < freshnessThreshold
-	return raw, fresh, false, true
-}
-
-func (c *Cache) Set(season string, year int, category string, data []byte) error {
-	now := time.Now().Unix()
-	_, err := c.db.Exec(
-		`INSERT OR REPLACE INTO season_cache (season, year, category, data, is_empty, fetched_at, last_hit)
-		 VALUES (?, ?, ?, ?, 0, ?, ?)`,
-		season, year, category, data, now, now,
-	)
-	return err
-}
-
-func (c *Cache) GetWithVersion(season string, year int, category string, mappingVersion string, filterFutureEnabled bool) (data []byte, fresh bool, isPending bool, ok bool) {
+func (c *Cache) Get(season string, year int, category string, mappingVersion string, filterFutureEnabled bool) (data []byte, fresh bool, isPending bool, ok bool) {
 	var raw []byte
 	var isEmpty int
 	var fetchedAt int64
@@ -226,7 +167,7 @@ func (c *Cache) GetWithVersion(season string, year int, category string, mapping
 	return raw, fresh, false, true
 }
 
-func (c *Cache) SetWithVersion(season string, year int, category string, data []byte, mappingVersion string, filterFutureEnabled bool) error {
+func (c *Cache) Set(season string, year int, category string, data []byte, mappingVersion string, filterFutureEnabled bool) error {
 	now := time.Now().Unix()
 	ffe := 0
 	if filterFutureEnabled {
@@ -240,18 +181,7 @@ func (c *Cache) SetWithVersion(season string, year int, category string, data []
 	return err
 }
 
-// Deprecated: Use SetEmptyIfNotExists for concurrent-safe placeholder
-// insertion. SetEmpty uses INSERT OR REPLACE and may overwrite data that
-// another goroutine just finished writing. Kept for test compatibility.
-func (c *Cache) SetEmpty(season string, year int, category string) error {
-	now := time.Now().Unix()
-	_, err := c.db.Exec(
-		`INSERT OR REPLACE INTO season_cache (season, year, category, data, is_empty, fetched_at, last_hit)
-		 VALUES (?, ?, ?, X'5B5D', 1, ?, ?)`,
-		season, year, category, now, now,
-	)
-	return err
-}
+
 
 // SetEmptyIfNotExists inserts a pending placeholder only if no entry
 // exists for this key yet. Returns (true, nil) if inserted, (false, nil)

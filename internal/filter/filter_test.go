@@ -4,19 +4,18 @@ import (
 	"testing"
 
 	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/testutil"
 )
 
-func makePtr[T any](v T) *T {
-	return &v
-}
+
 
 func TestFilter_SkipsShortDuration(t *testing.T) {
 	t.Parallel()
 
 	shows := []anilist.Show{
-		{Duration: makePtr(24), Episodes: makePtr(12)},
-		{Duration: makePtr(6), Episodes: makePtr(1)},
-		{Duration: makePtr(10), Episodes: makePtr(1)},
+		{Duration: testutil.Ptr(24), Episodes: testutil.Ptr(12)},
+		{Duration: testutil.Ptr(6), Episodes: testutil.Ptr(1)},
+		{Duration: testutil.Ptr(10), Episodes: testutil.Ptr(1)},
 	}
 
 	result := Filter(shows, Config{})
@@ -61,8 +60,8 @@ func TestFilterFuture_RemovesFutureShows(t *testing.T) {
 
 	year := 2099
 	shows := []anilist.Show{
-		{StartDate: anilist.FuzzyDate{Year: &year, Month: makePtr(12)}},
-		{StartDate: anilist.FuzzyDate{Year: makePtr(2020), Month: makePtr(1)}},
+		{StartDate: anilist.FuzzyDate{Year: &year, Month: testutil.Ptr(12)}},
+		{StartDate: anilist.FuzzyDate{Year: testutil.Ptr(2020), Month: testutil.Ptr(1)}},
 	}
 
 	result := FilterFuture(shows, 3)
@@ -75,7 +74,7 @@ func TestFilterFuture_NoLimit(t *testing.T) {
 	t.Parallel()
 
 	shows := []anilist.Show{
-		{StartDate: anilist.FuzzyDate{Year: makePtr(2099), Month: makePtr(12)}},
+		{StartDate: anilist.FuzzyDate{Year: testutil.Ptr(2099), Month: testutil.Ptr(12)}},
 	}
 
 	result := FilterFuture(shows, 0)
@@ -109,7 +108,7 @@ func TestFilterFirstSeason(t *testing.T) {
 	}{
 		{
 			name: "no relations",
-			show: anilist.Show{ID: 1, Title: anilist.Title{English: makePtr("Original Show")}},
+			show: anilist.Show{ID: 1, Title: anilist.Title{English: testutil.Ptr("Original Show")}},
 			want: true,
 		},
 		{
@@ -172,7 +171,7 @@ func TestFilterFirstSeason_Mixed(t *testing.T) {
 	t.Parallel()
 
 	shows := []anilist.Show{
-		{ID: 1, Title: anilist.Title{English: makePtr("New Show")}},
+		{ID: 1, Title: anilist.Title{English: testutil.Ptr("New Show")}},
 		{ID: 2, Relations: &anilist.RelationBlock{
 			Edges: []anilist.RelationEdge{{RelationType: "PREQUEL"}},
 		}},

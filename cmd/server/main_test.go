@@ -160,7 +160,7 @@ func TestHandleList_CacheHit(t *testing.T) {
 
 	// Pre-populate cache
 	data := []byte(`[{"tvdbId":12345,"title":"Test Show"}]`)
-	if err := c.Set("WINTER", 2026, "series", data); err != nil {
+	if err := c.Set("WINTER", 2026, "series", data, "", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -209,7 +209,7 @@ func TestHandleList_InvalidCategory(t *testing.T) {
 
 	// Invalid category should default to "series"
 	data := []byte(`[{"tvdbId":99999,"title":"Category Test"}]`)
-	if err := c.Set("WINTER", 2026, "series", data); err != nil {
+	if err := c.Set("WINTER", 2026, "series", data, "", true); err != nil {
 		t.Fatal(err)
 	}
 

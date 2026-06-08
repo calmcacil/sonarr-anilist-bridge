@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/calmcacil/sonarr-anime-bridge/internal/testutil"
 )
 
 func TestIsSeries(t *testing.T) {
@@ -86,21 +88,21 @@ func TestSkipByDuration(t *testing.T) {
 	})
 
 	t.Run("short duration", func(t *testing.T) {
-		s := Show{Duration: makePtr(6)}
+		s := Show{Duration: testutil.Ptr(6)}
 		if !s.SkipByDuration() {
 			t.Error("expected true for duration <= 10")
 		}
 	})
 
 	t.Run("exact boundary", func(t *testing.T) {
-		s := Show{Duration: makePtr(10)}
+		s := Show{Duration: testutil.Ptr(10)}
 		if !s.SkipByDuration() {
 			t.Error("expected true for duration == 10")
 		}
 	})
 
 	t.Run("long duration", func(t *testing.T) {
-		s := Show{Duration: makePtr(24)}
+		s := Show{Duration: testutil.Ptr(24)}
 		if s.SkipByDuration() {
 			t.Error("expected false for duration > 10")
 		}
@@ -143,7 +145,7 @@ func TestIsWithinMonths(t *testing.T) {
 	})
 
 	t.Run("nil month", func(t *testing.T) {
-		s := Show{StartDate: FuzzyDate{Year: makePtr(2026), Month: nil}}
+		s := Show{StartDate: FuzzyDate{Year: testutil.Ptr(2026), Month: nil}}
 		if !s.IsWithinMonths(3) {
 			t.Error("expected true when month is nil")
 		}
@@ -151,7 +153,7 @@ func TestIsWithinMonths(t *testing.T) {
 
 	t.Run("past date", func(t *testing.T) {
 		year := now.Year() - 1
-		s := Show{StartDate: FuzzyDate{Year: &year, Month: makePtr(1)}}
+		s := Show{StartDate: FuzzyDate{Year: &year, Month: testutil.Ptr(1)}}
 		if !s.IsWithinMonths(3) {
 			t.Error("expected true for past date")
 		}
@@ -171,7 +173,7 @@ func TestIsWithinMonths(t *testing.T) {
 
 	t.Run("far future date", func(t *testing.T) {
 		year := 2099
-		s := Show{StartDate: FuzzyDate{Year: &year, Month: makePtr(12)}}
+		s := Show{StartDate: FuzzyDate{Year: &year, Month: testutil.Ptr(12)}}
 		if s.IsWithinMonths(12) {
 			t.Error("expected false for far future date")
 		}
@@ -183,8 +185,8 @@ func TestDisplayTitle(t *testing.T) {
 
 	t.Run("english title preferred", func(t *testing.T) {
 		s := Show{Title: Title{
-			English: makePtr("Attack on Titan"),
-			Romaji:  makePtr("Shingeki no Kyojin"),
+			English: testutil.Ptr("Attack on Titan"),
+			Romaji:  testutil.Ptr("Shingeki no Kyojin"),
 		}}
 		if got := s.DisplayTitle(); got != "Attack on Titan" {
 			t.Errorf("got %q, want %q", got, "Attack on Titan")
@@ -193,8 +195,8 @@ func TestDisplayTitle(t *testing.T) {
 
 	t.Run("empty english falls back to romaji", func(t *testing.T) {
 		s := Show{Title: Title{
-			English: makePtr(""),
-			Romaji:  makePtr("Shingeki no Kyojin"),
+			English: testutil.Ptr(""),
+			Romaji:  testutil.Ptr("Shingeki no Kyojin"),
 		}}
 		if got := s.DisplayTitle(); got != "Shingeki no Kyojin" {
 			t.Errorf("got %q, want %q", got, "Shingeki no Kyojin")
@@ -204,7 +206,7 @@ func TestDisplayTitle(t *testing.T) {
 	t.Run("no english uses romaji", func(t *testing.T) {
 		s := Show{Title: Title{
 			English: nil,
-			Romaji:  makePtr("Shingeki no Kyojin"),
+			Romaji:  testutil.Ptr("Shingeki no Kyojin"),
 		}}
 		if got := s.DisplayTitle(); got != "Shingeki no Kyojin" {
 			t.Errorf("got %q, want %q", got, "Shingeki no Kyojin")
@@ -230,58 +232,56 @@ func TestIsWinterStart(t *testing.T) {
 	})
 
 	t.Run("december", func(t *testing.T) {
-		s := Show{StartDate: FuzzyDate{Month: makePtr(12)}}
+		s := Show{StartDate: FuzzyDate{Month: testutil.Ptr(12)}}
 		if !s.IsWinterStart() {
 			t.Error("expected true for December")
 		}
 	})
 
 	t.Run("january", func(t *testing.T) {
-		s := Show{StartDate: FuzzyDate{Month: makePtr(1)}}
+		s := Show{StartDate: FuzzyDate{Month: testutil.Ptr(1)}}
 		if !s.IsWinterStart() {
 			t.Error("expected true for January")
 		}
 	})
 
 	t.Run("february", func(t *testing.T) {
-		s := Show{StartDate: FuzzyDate{Month: makePtr(2)}}
+		s := Show{StartDate: FuzzyDate{Month: testutil.Ptr(2)}}
 		if !s.IsWinterStart() {
 			t.Error("expected true for February")
 		}
 	})
 
 	t.Run("march", func(t *testing.T) {
-		s := Show{StartDate: FuzzyDate{Month: makePtr(3)}}
+		s := Show{StartDate: FuzzyDate{Month: testutil.Ptr(3)}}
 		if !s.IsWinterStart() {
 			t.Error("expected true for March")
 		}
 	})
 
 	t.Run("april", func(t *testing.T) {
-		s := Show{StartDate: FuzzyDate{Month: makePtr(4)}}
+		s := Show{StartDate: FuzzyDate{Month: testutil.Ptr(4)}}
 		if s.IsWinterStart() {
 			t.Error("expected false for April")
 		}
 	})
 
 	t.Run("july", func(t *testing.T) {
-		s := Show{StartDate: FuzzyDate{Month: makePtr(7)}}
+		s := Show{StartDate: FuzzyDate{Month: testutil.Ptr(7)}}
 		if s.IsWinterStart() {
 			t.Error("expected false for July")
 		}
 	})
 
 	t.Run("november", func(t *testing.T) {
-		s := Show{StartDate: FuzzyDate{Month: makePtr(11)}}
+		s := Show{StartDate: FuzzyDate{Month: testutil.Ptr(11)}}
 		if s.IsWinterStart() {
 			t.Error("expected false for November")
 		}
 	})
 }
 
-func makePtr[T any](v T) *T {
-	return &v
-}
+
 
 func TestClient_ConcurrentThrottle(t *testing.T) {
 	t.Parallel()

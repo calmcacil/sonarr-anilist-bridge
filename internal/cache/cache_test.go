@@ -26,7 +26,7 @@ func TestGetMiss(t *testing.T) {
 	}
 	defer c.Close()
 
-	data, fresh, isPending, ok := c.Get("WINTER", 2026, "series")
+	data, fresh, isPending, ok := c.Get("WINTER", 2026, "series", "", true)
 	if ok {
 		t.Error("expected miss")
 	}
@@ -50,13 +50,13 @@ func TestSetEmptyAndGet(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetEmpty("WINTER", 2026, "series"); err != nil {
-		t.Fatalf("SetEmpty: %v", err)
+	if _, err := c.SetEmptyIfNotExists("WINTER", 2026, "series"); err != nil {
+		t.Fatalf("SetEmptyIfNotExists: %v", err)
 	}
 
-	data, fresh, isPending, ok := c.Get("WINTER", 2026, "series")
+	data, fresh, isPending, ok := c.Get("WINTER", 2026, "series", "", true)
 	if !ok {
-		t.Fatal("expected hit after SetEmpty")
+		t.Fatal("expected hit after SetEmptyIfNotExists")
 	}
 	if data != nil {
 		t.Error("expected nil data for pending entry")
@@ -79,11 +79,11 @@ func TestSetAndGet(t *testing.T) {
 	defer c.Close()
 
 	showData := []byte(`[{"tvdbId":12345,"title":"Test Show"}]`)
-	if err := c.Set("SPRING", 2026, "series", showData); err != nil {
+	if err := c.Set("SPRING", 2026, "series", showData, "", true); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
-	data, fresh, isPending, ok := c.Get("SPRING", 2026, "series")
+	data, fresh, isPending, ok := c.Get("SPRING", 2026, "series", "", true)
 	if !ok {
 		t.Fatal("expected hit after Set")
 	}
@@ -107,12 +107,12 @@ func TestSetOverwritesEmpty(t *testing.T) {
 	}
 	defer c.Close()
 
-	c.SetEmpty("WINTER", 2026, "series")
+	c.SetEmptyIfNotExists("WINTER", 2026, "series")
 
 	showData := []byte(`[{"tvdbId":99999,"title":"Real Show"}]`)
-	c.Set("WINTER", 2026, "series", showData)
+	c.Set("WINTER", 2026, "series", showData, "", true)
 
-	data, fresh, isPending, ok := c.Get("WINTER", 2026, "series")
+	data, fresh, isPending, ok := c.Get("WINTER", 2026, "series", "", true)
 	if !ok {
 		t.Fatal("expected hit")
 	}
@@ -136,8 +136,8 @@ func TestPruneStale(t *testing.T) {
 	}
 	defer c.Close()
 
-	c.Set("WINTER", 2020, "series", []byte(`[]`))
-	c.Set("SPRING", 2020, "series", []byte(`[]`))
+	c.Set("WINTER", 2020, "series", []byte(`[]`), "", true)
+	c.Set("SPRING", 2020, "series", []byte(`[]`), "", true)
 
 	n, err := c.PruneStale(365)
 	if err != nil {
@@ -167,8 +167,8 @@ func TestNeedsRefresh(t *testing.T) {
 	}
 	defer c.Close()
 
-	c.Set("WINTER", 2020, "series", []byte(`[]`))
-	c.Set("SPRING", 2026, "series", []byte(`[]`))
+	c.Set("WINTER", 2020, "series", []byte(`[]`), "", true)
+	c.Set("SPRING", 2026, "series", []byte(`[]`), "", true)
 
 	// Entries just created should NOT need refresh
 	keys, err := c.NeedsRefresh(2026, 7, 30, "", true)
@@ -189,7 +189,7 @@ func TestNeedsRefresh_MappingVersionMismatch(t *testing.T) {
 	}
 	defer c.Close()
 
-	c.SetWithVersion("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`), "v1", true)
+	c.Set("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`), "v1", true)
 
 	// Same version → no refresh needed
 	keys, err := c.NeedsRefresh(2026, 7, 30, "v1", true)
@@ -240,9 +240,9 @@ func TestStats(t *testing.T) {
 	}
 	defer c.Close()
 
-	c.Set("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`))
-	c.Set("SPRING", 2026, "series", []byte(`[{"tvdbId":2}]`))
-	c.Get("WINTER", 2026, "series")
+	c.Set("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`), "", true)
+	c.Set("SPRING", 2026, "series", []byte(`[{"tvdbId":2}]`), "", true)
+	c.Get("WINTER", 2026, "series", "", true)
 
 	stats := c.Stats()
 	if stats.Entries != 2 {
@@ -286,7 +286,7 @@ func TestSetEmptyIfNotExists_DoesNotReplaceRealData(t *testing.T) {
 	defer c.Close()
 
 	realData := []byte(`[{"tvdbId":123}]`)
-	if err := c.Set("SPRING", 2026, "series", realData); err != nil {
+	if err := c.Set("SPRING", 2026, "series", realData, "", true); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -298,7 +298,7 @@ func TestSetEmptyIfNotExists_DoesNotReplaceRealData(t *testing.T) {
 		t.Error("expected false when entry already has real data")
 	}
 
-	data, _, _, ok := c.Get("SPRING", 2026, "series")
+	data, _, _, ok := c.Get("SPRING", 2026, "series", "", true)
 	if !ok {
 		t.Fatal("expected hit")
 	}
@@ -319,10 +319,10 @@ func TestConcurrentCacheAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.Set("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`))
-			c.Get("WINTER", 2026, "series")
+			c.Set("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`), "", true)
+			c.Get("WINTER", 2026, "series", "", true)
 			c.SetEmptyIfNotExists("SPRING", 2026, "series")
-			c.Get("SPRING", 2026, "series")
+			c.Get("SPRING", 2026, "series", "", true)
 			c.Stats()
 		}()
 	}
