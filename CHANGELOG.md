@@ -22,6 +22,15 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.4.1] — 2026-06-08
+
+### Fixed
+refresh cached entries when filter_future_enabled changes (#18)
+
+### Miscellaneous
+fix stale sonarr-anilist-bridge references in User-Agent header
+
 ## [2.4.0] — 2026-06-08
 
 ### Added
@@ -141,3 +150,4 @@ rename repo to sonarr-anime-bridge
 [2.2.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.2.0
 [2.3.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.3.0
 [2.4.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.4.0
+[2.4.1]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.4.1
