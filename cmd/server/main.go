@@ -148,7 +148,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 			category = "series"
 		}
 
-		data, fresh, isPending, ok := db.Get(season, year, category)
+		data, fresh, isPending, ok := db.GetWithVersion(season, year, category, sched.MappingVersion())
 		if !ok {
 			slog.Info("cache miss, triggering backfill",
 				"season", season,

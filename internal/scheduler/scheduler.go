@@ -47,6 +47,15 @@ func (s *Scheduler) ResolverLoaded() bool {
 	return s.resolver != nil && s.resolver.Mapping() != nil
 }
 
+// MappingVersion returns a content-based hash of the current anibridge
+// mapping. Returns empty string if no mapping is loaded.
+func (s *Scheduler) MappingVersion() string {
+	if !s.ResolverLoaded() {
+		return ""
+	}
+	return cache.MappingVersion(s.resolver.Mapping())
+}
+
 // LoadResolver loads the anibridge mapping synchronously. Must be called
 // before any Resolve / ResolveBatch call.
 func (s *Scheduler) LoadResolver() {
@@ -82,6 +91,7 @@ func (s *Scheduler) StartBackground(ctx context.Context) {
 			case <-ticker.C:
 				s.refreshStale(ctx)
 				s.prune(ctx)
+				s.logCacheStats(ctx)
 			}
 		}
 	}()
@@ -244,7 +254,7 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 		return fmt.Errorf("marshal shows: %w", err)
 	}
 
-	if err := s.cache.Set(season, year, category, data); err != nil {
+	if err := s.cache.SetWithVersion(season, year, category, data, s.MappingVersion()); err != nil {
 		return fmt.Errorf("cache set: %w", err)
 	}
 
@@ -252,10 +262,44 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 	return nil
 }
 
+func (s *Scheduler) fetchOrGetCachedAniList(ctx context.Context, season string, year int, formats []string) ([]anilist.Show, error) {
+	rawData, fresh, ok := s.cache.GetAniList(season, year)
+	if ok && fresh {
+		var shows []anilist.Show
+		if err := json.Unmarshal(rawData, &shows); err != nil {
+			return nil, fmt.Errorf("unmarshal cached anilist data: %w", err)
+		}
+		slog.Debug("using cached AniList data", "season", season, "year", year)
+		return shows, nil
+	}
+
+	shows, err := s.client.FetchSeason(ctx, season, year, s.cfg.MaxPerSeason, formats)
+	if err != nil {
+		if ok {
+			slog.Warn("AniList fetch failed, using stale cache", "season", season, "year", year, "error", err)
+			var cached []anilist.Show
+			if uerr := json.Unmarshal(rawData, &cached); uerr == nil {
+				return cached, nil
+			}
+		}
+		return nil, fmt.Errorf("fetch season %s %d: %w", season, year, err)
+	}
+
+	data, err := json.Marshal(shows)
+	if err != nil {
+		return nil, fmt.Errorf("marshal anilist data: %w", err)
+	}
+	if err := s.cache.SetAniList(season, year, data); err != nil {
+		slog.Warn("failed to cache AniList data", "season", season, "year", year, "error", err)
+	}
+
+	return shows, nil
+}
+
 func (s *Scheduler) processSeason(ctx context.Context, season string, year int, formats []string, category string) ([]Show, error) {
 	slog.Info("fetching season", "season", season, "year", year)
 
-	shows, err := s.client.FetchSeason(ctx, season, year, s.cfg.MaxPerSeason, formats)
+	shows, err := s.fetchOrGetCachedAniList(ctx, season, year, formats)
 	if err != nil {
 		return nil, fmt.Errorf("fetch season %s %d: %w", season, year, err)
 	}
@@ -284,7 +328,7 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 
 func (s *Scheduler) fetchWinterOverflow(ctx context.Context, year int, formats []string, shows []anilist.Show) []anilist.Show {
 	overflowYear := year - 1
-	overflow, err := s.client.FetchSeason(ctx, "WINTER", overflowYear, s.cfg.MaxPerSeason, formats)
+	overflow, err := s.fetchOrGetCachedAniList(ctx, "WINTER", overflowYear, formats)
 	if err != nil {
 		slog.Warn("winter overflow fetch failed", "year", overflowYear, "error", err)
 		return shows
@@ -328,7 +372,7 @@ func (s *Scheduler) resolveShows(shows []anilist.Show) []Show {
 
 func (s *Scheduler) refreshStale(ctx context.Context) {
 	currentYear := time.Now().Year()
-	keys, err := s.cache.NeedsRefresh(currentYear, 7, 30)
+	keys, err := s.cache.NeedsRefresh(currentYear, 7, 30, s.MappingVersion())
 	if err != nil {
 		slog.Error("needs refresh query failed", "error", err)
 		return
@@ -353,4 +397,16 @@ func (s *Scheduler) prune(ctx context.Context) {
 	if n > 0 {
 		slog.Info("pruned cache entries", "count", n)
 	}
+}
+
+func (s *Scheduler) logCacheStats(ctx context.Context) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+	stats := s.cache.Stats()
+	slog.Info("cache stats",
+		"entries", stats.Entries,
+		"hits", stats.Hits,
+		"misses", stats.Misses,
+	)
 }

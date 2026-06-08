@@ -171,12 +171,45 @@ func TestNeedsRefresh(t *testing.T) {
 	c.Set("SPRING", 2026, "series", []byte(`[]`))
 
 	// Entries just created should NOT need refresh
-	keys, err := c.NeedsRefresh(2026, 7, 30)
+	keys, err := c.NeedsRefresh(2026, 7, 30, "")
 	if err != nil {
 		t.Fatalf("NeedsRefresh: %v", err)
 	}
 	if len(keys) != 0 {
 		t.Errorf("expected 0 stale entries, got %d", len(keys))
+	}
+}
+
+func TestNeedsRefresh_MappingVersionMismatch(t *testing.T) {
+	t.Parallel()
+
+	c, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	c.SetWithVersion("WINTER", 2026, "series", []byte(`[{"tvdbId":1}]`), "v1")
+
+	// Same version → no refresh needed
+	keys, err := c.NeedsRefresh(2026, 7, 30, "v1")
+	if err != nil {
+		t.Fatalf("NeedsRefresh: %v", err)
+	}
+	if len(keys) != 0 {
+		t.Errorf("expected 0 stale entries for matching version, got %d", len(keys))
+	}
+
+	// Different version → needs refresh
+	keys, err = c.NeedsRefresh(2026, 7, 30, "v2")
+	if err != nil {
+		t.Fatalf("NeedsRefresh: %v", err)
+	}
+	if len(keys) != 1 {
+		t.Errorf("expected 1 stale entry for mismatched version, got %d", len(keys))
+	}
+	if keys[0].Season != "WINTER" || keys[0].Year != 2026 || keys[0].Category != "series" {
+		t.Errorf("unexpected key: %+v", keys[0])
 	}
 }
 
