@@ -292,7 +292,7 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 		return fmt.Errorf("marshal shows: %w", err)
 	}
 
-	if err := s.cache.SetWithVersion(season, year, category, data, s.MappingVersion(), s.cfg.FilterFutureEnabled); err != nil {
+	if err := s.cache.Set(season, year, category, data, s.MappingVersion(), s.cfg.FilterFutureEnabled); err != nil {
 		return fmt.Errorf("cache set: %w", err)
 	}
 

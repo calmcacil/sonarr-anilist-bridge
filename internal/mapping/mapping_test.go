@@ -17,6 +17,7 @@ import (
 	"github.com/calmcacil/sonarr-anime-bridge/internal/config"
 
 	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
+	"github.com/calmcacil/sonarr-anime-bridge/internal/testutil"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -110,15 +111,13 @@ func TestNewAnibridgeMapping_EmptyMaps(t *testing.T) {
 
 // --- Resolver behavior ------------------------------------------------------
 
-func makePtr[T any](v T) *T {
-	return &v
-}
+
 
 func showWithMAL(id int, mal int, title string) anilist.Show {
 	return anilist.Show{
 		ID:    id,
-		IDMal: makePtr(mal),
-		Title: anilist.Title{English: makePtr(title)},
+		IDMal: testutil.Ptr(mal),
+		Title: anilist.Title{English: testutil.Ptr(title)},
 	}
 }
 
@@ -126,7 +125,7 @@ func showAnilistOnly(id int, title string) anilist.Show {
 	return anilist.Show{
 		ID:    id,
 		IDMal: nil,
-		Title: anilist.Title{English: makePtr(title)},
+		Title: anilist.Title{English: testutil.Ptr(title)},
 	}
 }
 

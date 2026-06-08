@@ -6,12 +6,76 @@ Project-specific rules for coding agents working on this repo.
 
 - Run the full regression suite before creating any PR:
   `golangci-lint run ./... && go build ./... && go test -race ./...`
-- When making behavioral changes, also run side-by-side Docker regression
-  tests to confirm no unintended regression. Use default configuration
-  (no MAX_PER_SEASON override) so the full seasonal output is fetched.
-  Compare the output data (show count and tvdbId list) against a known
-  baseline to catch regressions in filtering, resolution, or sorting.
+- When making behavioral changes, also run side-by-side regression tests to
+  confirm no unintended regression. Use default configuration (no
+  MAX_PER_SEASON override) so the full seasonal output is fetched. Compare
+  the output data (show count and tvdbId list) against a known baseline to
+  catch regressions in filtering, resolution, or sorting.
+- Prefer the faster **native** regression test (below) for quick iteration;
+  use the **Docker** test for CI-equivalent coverage.
 - Only create the PR after all checks pass.
+
+## Native Regression Tests (faster, no Docker needed)
+
+These tests build both the candidate and reference binaries directly from
+source and run them outside Docker. Ideal for rapid iteration during
+development — no container build, no registry pulls.
+
+### Quick one-shot
+
+```bash
+./testdata/native-regression.sh
+```
+
+This builds both the current-tree (candidate) and the latest release tag
+(reference) binaries, starts each against live AniList data, exercises all
+endpoints, and compares the tvdbId output sets. Exit code is zero when
+data matches, non-zero when differences are found.
+
+### Manual step-by-step
+
+```bash
+# 1. Build candidate binary
+go build -ldflags="-s -w" -o /tmp/sab-cand-server ./cmd/server
+
+# 2. Build reference binary from latest release tag
+LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+git worktree add --detach /tmp/sab-ref-worktree "$LATEST_TAG"
+cd /tmp/sab-ref-worktree
+go build -ldflags="-s -w" -o /tmp/sab-ref-server ./cmd/server
+cd - && git worktree remove /tmp/sab-ref-worktree
+
+# 3. Start candidate
+CAND_DATA=$(mktemp -d)
+PORT=18081 CACHE_DB_PATH="$CAND_DATA/cache.db" \
+  MAPPING_PATH="$CAND_DATA/mappings.json.zst" \
+  PREWARM_YEARS="$(date +%Y)" PREWARM_SEASONS="winter" \
+  /tmp/sab-cand-server &
+
+# 4. Start reference
+REF_DATA=$(mktemp -d)
+PORT=18082 CACHE_DB_PATH="$REF_DATA/cache.db" \
+  MAPPING_PATH="$REF_DATA/mappings.json.zst" \
+  PREWARM_YEARS="$(date +%Y)" PREWARM_SEASONS="winter" \
+  /tmp/sab-ref-server &
+
+# 5. Wait for both to be healthy (up to 40s)
+for i in $(seq 1 40); do
+  curl -sf http://localhost:18081/health >/dev/null 2>&1 && \
+    curl -sf http://localhost:18082/health >/dev/null 2>&1 && break
+  sleep 1
+done
+
+# 6-9. Same curl commands as the Docker procedure using both ports
+# 10. Graceful shutdown (kill both PIDs)
+# 11. Compare tvdbId sets with diff
+```
+
+### Data baseline comparison
+
+Both the candidate and reference are built from source, so no external
+artifacts are needed. The script uses `gh release list` to find the latest
+release tag and checks it out via `git worktree add`.
 
 ## Docker Regression Tests
 
