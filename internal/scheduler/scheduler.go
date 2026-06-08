@@ -129,7 +129,7 @@ func (s *Scheduler) Process(rawData []byte, season string, year int, category st
 		return nil, fmt.Errorf("unmarshal year data: %w", err)
 	}
 
-	if season == "WINTER" {
+	if season == "WINTER" || season == "ALL" {
 		prevData, _, ok := s.cache.GetYear(year - 1)
 		if ok {
 			var prevShows []anilist.Show

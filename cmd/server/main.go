@@ -157,7 +157,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 			return
 		}
 
-		if season == "WINTER" && !db.HasYear(year-1) {
+		if (season == "WINTER" || season == "ALL") && !db.HasYear(year-1) {
 			slog.Debug("winter overflow: prior year not cached, triggering backfill",
 				"prior_year", year-1,
 			)
