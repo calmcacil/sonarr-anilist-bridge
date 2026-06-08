@@ -1,0 +1,27 @@
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - gocritic
+    - bodyclose
+
+linters-settings:
+  errcheck:
+    check-blank: false
+    exclude-functions:
+      - (io.Closer).Close
+      - (net/http.ResponseWriter).Write
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gocritic
