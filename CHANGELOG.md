@@ -18,6 +18,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.1.0] — 2026-06-08
+
+### Added
+add cache entry count to startup logs (#12)
+
 ## [2.0.0] — 2026-06-08
 
 ### Changed
@@ -113,3 +119,4 @@ rename repo to sonarr-anime-bridge
 [1.0.8]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.0.8
 [1.1.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v1.1.0
 [2.0.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.0.0
+[2.1.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.1.0
