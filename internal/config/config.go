@@ -89,7 +89,7 @@ func Load() *Config {
 	cfg := &Config{
 		Port:               getEnvInt("PORT", DefaultPort),
 		MaxPerSeason:       getEnvInt("MAX_PER_SEASON", DefaultMaxPerSeason),
-		IncludeONA:         getEnvBool("ALG_ANILIST_INCLUDE_ONA", false),
+		IncludeONA:         getEnvBool("ALG_ANILIST_INCLUDE_ONA", true),
 		WinterOverflow:     getEnvBool("ALG_ANILIST_WINTER_OVERFLOW", true),
 		CacheDBPath:        getEnvStr("CACHE_DB_PATH", DefaultCacheDBPath),
 		CacheStaleDays:     getEnvInt("CACHE_STALE_DAYS", DefaultCacheStaleDays),
