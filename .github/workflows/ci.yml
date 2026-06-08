@@ -3,6 +3,13 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'specs/**'
+      - '.github/**'
+      - 'LICENSE'
+      - 'NOTICE'
 
 permissions:
   contents: read
