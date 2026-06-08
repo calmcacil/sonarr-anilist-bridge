@@ -174,16 +174,17 @@ func (c *Cache) Set(season string, year int, category string, data []byte) error
 	return err
 }
 
-func (c *Cache) GetWithVersion(season string, year int, category string, mappingVersion string) (data []byte, fresh bool, isPending bool, ok bool) {
+func (c *Cache) GetWithVersion(season string, year int, category string, mappingVersion string, filterFutureEnabled bool) (data []byte, fresh bool, isPending bool, ok bool) {
 	var raw []byte
 	var isEmpty int
 	var fetchedAt int64
 	var storedVersion string
+	var storedFFE int
 
 	err := c.db.QueryRow(
-		`SELECT data, is_empty, fetched_at, mapping_version FROM season_cache WHERE season=? AND year=? AND category=?`,
+		`SELECT data, is_empty, fetched_at, mapping_version, filter_future_enabled FROM season_cache WHERE season=? AND year=? AND category=?`,
 		season, year, category,
-	).Scan(&raw, &isEmpty, &fetchedAt, &storedVersion)
+	).Scan(&raw, &isEmpty, &fetchedAt, &storedVersion, &storedFFE)
 
 	if err != nil {
 		c.misses.Add(1)
@@ -221,7 +222,7 @@ func (c *Cache) GetWithVersion(season string, year int, category string, mapping
 	if year == time.Now().Year() {
 		freshnessThreshold = c.currentYearFreshness
 	}
-	fresh = time.Since(time.Unix(fetchedAt, 0)) < freshnessThreshold && storedVersion == mappingVersion
+	fresh = time.Since(time.Unix(fetchedAt, 0)) < freshnessThreshold && storedVersion == mappingVersion && (storedFFE == 1) == filterFutureEnabled
 	return raw, fresh, false, true
 }
 
