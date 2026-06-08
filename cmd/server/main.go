@@ -42,6 +42,9 @@ func run() error {
 	}
 	defer db.Close() //nolint:errcheck // cleanup on exit
 
+	stats := db.Stats()
+	slog.Info("loading cache", "entries", stats.Entries)
+
 	sched := scheduler.New(db, cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,6 +58,9 @@ func run() error {
 		slog.Error("prewarm failed", "error", err)
 	}
 	slog.Info("prewarm complete")
+
+	stats = db.Stats()
+	slog.Info("loading cache", "entries", stats.Entries)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/list", handleList(db, sched, cfg))
