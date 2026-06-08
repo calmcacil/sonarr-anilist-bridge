@@ -112,6 +112,13 @@ func (s *Scheduler) refreshMapping(ctx context.Context) {
 func (s *Scheduler) Prewarm(ctx context.Context) error {
 	var firstErr error
 	for _, year := range s.cfg.PrewarmYears {
+		if data, fresh, ok := s.cache.GetYear(year); ok && fresh {
+			var shows []anilist.Show
+			if err := json.Unmarshal(data, &shows); err == nil {
+				slog.Info("prewarm skipped, cache is fresh", "year", year, "shows", len(shows))
+				continue
+			}
+		}
 		slog.Info("prewarming", "year", year)
 		if err := s.FetchAndStore(ctx, year); err != nil {
 			slog.Error("prewarm failed", "year", year, "error", err)
