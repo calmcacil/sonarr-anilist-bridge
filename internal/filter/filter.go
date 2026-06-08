@@ -34,7 +34,7 @@ func Filter(shows []anilist.Show, cfg Config) []anilist.Show {
 
 	skipped := len(shows) - len(filtered)
 	if skipped > 0 {
-		slog.Info("filtered shows",
+		slog.Debug("filtered shows",
 			"total", len(shows),
 			"skipped", skipped,
 			"remaining", len(filtered))

@@ -252,7 +252,7 @@ func (s *Scheduler) logCacheStats(ctx context.Context) {
 		return
 	}
 	stats := s.cache.Stats()
-	slog.Info("cache stats",
+	slog.Debug("cache stats",
 		"entries", stats.Entries,
 		"hits", stats.Hits,
 		"misses", stats.Misses,
