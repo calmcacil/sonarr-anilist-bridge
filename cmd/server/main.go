@@ -50,11 +50,6 @@ func run() error {
 	defer cancel()
 
 	sched.LoadResolver()
-	slog.Info("prewarming cache")
-	if err := sched.Prewarm(ctx); err != nil {
-		slog.Error("prewarm failed", "error", err)
-	}
-	slog.Info("prewarm complete", "entries", db.Stats().Entries)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/list", handleList(db, sched, cfg))
@@ -83,6 +78,12 @@ func run() error {
 			slog.Error("server error", "error", err)
 		}
 	}()
+
+	slog.Info("prewarming cache")
+	if err := sched.Prewarm(ctx); err != nil {
+		slog.Error("prewarm failed", "error", err)
+	}
+	slog.Info("prewarm complete", "entries", db.Stats().Entries)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
