@@ -127,8 +127,11 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Vet
+        run: go vet ./...
+
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
