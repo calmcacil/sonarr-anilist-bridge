@@ -76,3 +76,37 @@ func FilterFuture(shows []anilist.Show, aheadMonths int) []anilist.Show {
 	}
 	return filtered
 }
+
+// FilterSeries keeps only shows that are series format.
+func FilterSeries(shows []anilist.Show) []anilist.Show {
+	var out []anilist.Show
+	for _, sh := range shows {
+		if sh.IsSeries() {
+			out = append(out, sh)
+		}
+	}
+	return out
+}
+
+// FilterFirstSeason keeps only shows that are first-season entries
+// (no PREQUEL or PARENT relations).
+func FilterFirstSeason(shows []anilist.Show) []anilist.Show {
+	var out []anilist.Show
+	for _, sh := range shows {
+		if sh.IsNew() {
+			out = append(out, sh)
+		}
+	}
+	return out
+}
+
+// FilterWinterMonth keeps only shows that started in a winter month.
+func FilterWinterMonth(shows []anilist.Show) []anilist.Show {
+	var filtered []anilist.Show
+	for _, sh := range shows {
+		if sh.IsWinterStart() {
+			filtered = append(filtered, sh)
+		}
+	}
+	return filtered
+}

@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates shadow su-exec wget
+RUN apk add --no-cache ca-certificates su-exec wget
 
 COPY --from=builder /server /server
 COPY entrypoint.sh /entrypoint.sh

@@ -11,10 +11,11 @@ import (
 )
 
 type Cache struct {
-	db                 *sql.DB
-	freshnessThreshold time.Duration
-	hits               atomic.Int64
-	misses             atomic.Int64
+	db                    *sql.DB
+	currentYearFreshness  time.Duration
+	pastYearFreshness     time.Duration
+	hits                  atomic.Int64
+	misses                atomic.Int64
 }
 
 type CacheKey struct {
@@ -37,7 +38,7 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(5)
 
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		db.Close()
@@ -60,7 +61,11 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("create table: %w", err)
 	}
 
-	return &Cache{db: db, freshnessThreshold: 24 * time.Hour}, nil
+	return &Cache{
+		db:                   db,
+		currentYearFreshness: 24 * time.Hour,
+		pastYearFreshness:    7 * 24 * time.Hour,
+	}, nil
 }
 
 func (c *Cache) Close() error {
@@ -96,7 +101,11 @@ func (c *Cache) Get(season string, year int, category string) (data []byte, fres
 		return nil, false, true, true
 	}
 
-	fresh = time.Since(time.Unix(fetchedAt, 0)) < c.freshnessThreshold
+	freshnessThreshold := c.pastYearFreshness
+	if year == time.Now().Year() {
+		freshnessThreshold = c.currentYearFreshness
+	}
+	fresh = time.Since(time.Unix(fetchedAt, 0)) < freshnessThreshold
 	return raw, fresh, false, true
 }
 
