@@ -27,11 +27,10 @@ func TestIntegration_DataPipeline(t *testing.T) {
 	dbPath := filepath.Join(dir, "cache.db")
 
 	cfg := &config.Config{
-		PrewarmYears:   []int{time.Now().Year()},
-		PrewarmSeasons: []string{"WINTER"},
-		MaxPerSeason:   50,
-		IncludeTypes:   []string{"TV", "ONA"},
-		CacheDBPath:    dbPath,
+		PrewarmYears: []int{time.Now().Year()},
+		MaxPerSeason: 50,
+		IncludeTypes: []string{"TV", "ONA"},
+		CacheDBPath:  dbPath,
 	}
 
 	c, err := cache.Open(dbPath)
@@ -44,24 +43,23 @@ func TestIntegration_DataPipeline(t *testing.T) {
 	sched.LoadResolver()
 
 	ctx := context.Background()
-	if err := sched.refresh(ctx, "WINTER", time.Now().Year(), "series"); err != nil {
-		t.Fatalf("refresh: %v", err)
+	year := time.Now().Year()
+
+	if err := sched.FetchAndStore(ctx, year); err != nil {
+		t.Fatalf("FetchAndStore: %v", err)
 	}
 
-	data, fresh, isPending, ok := c.Get("WINTER", time.Now().Year(), "series", sched.MappingVersion(), true)
+	data, fresh, ok := c.GetYear(year)
 	if !ok {
-		t.Fatal("expected cache hit after refresh")
-	}
-	if isPending {
-		t.Fatal("expected not pending after refresh")
+		t.Fatal("expected cache hit after FetchAndStore")
 	}
 	if !fresh {
 		t.Log("data is not fresh — acceptable if fetch was slow")
 	}
 
-	var shows []Show
-	if err := json.Unmarshal(data, &shows); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	shows, err := sched.Process(data, "WINTER", year, "series")
+	if err != nil {
+		t.Fatalf("Process: %v", err)
 	}
 	if len(shows) == 0 {
 		t.Fatal("expected at least one resolved show")
@@ -78,11 +76,10 @@ func TestIntegration_Prewarm(t *testing.T) {
 	dbPath := filepath.Join(dir, "cache.db")
 
 	cfg := &config.Config{
-		PrewarmYears:   []int{time.Now().Year()},
-		PrewarmSeasons: []string{"WINTER"},
-		MaxPerSeason:   50,
-		IncludeTypes:   []string{"TV", "ONA"},
-		CacheDBPath:    dbPath,
+		PrewarmYears: []int{time.Now().Year()},
+		MaxPerSeason: 50,
+		IncludeTypes: []string{"TV", "ONA"},
+		CacheDBPath:  dbPath,
 	}
 
 	c, err := cache.Open(dbPath)
@@ -99,21 +96,19 @@ func TestIntegration_Prewarm(t *testing.T) {
 		t.Fatalf("Prewarm: %v", err)
 	}
 
+	year := time.Now().Year()
 	for _, category := range []string{"series", "series-new"} {
-		data, fresh, isPending, ok := c.Get("WINTER", time.Now().Year(), category, sched.MappingVersion(), true)
+		data, fresh, ok := c.GetYear(year)
 		if !ok {
-			t.Fatalf("expected cache hit for %s", category)
-		}
-		if isPending {
-			t.Fatalf("expected not pending for %s", category)
+			t.Fatalf("expected cache hit for year %d", year)
 		}
 		if !fresh {
 			t.Logf("%s data is not fresh — acceptable", category)
 		}
 
-		var shows []Show
-		if err := json.Unmarshal(data, &shows); err != nil {
-			t.Fatalf("unmarshal %s: %v", category, err)
+		shows, err := sched.Process(data, "WINTER", year, category)
+		if err != nil {
+			t.Fatalf("Process %s: %v", category, err)
 		}
 		if len(shows) == 0 {
 			t.Fatalf("expected at least one resolved show in %s", category)

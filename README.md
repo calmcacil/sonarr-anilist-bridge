@@ -1,7 +1,7 @@
 # Sonarr AniList Bridge
 
 Sonarr-compatible seasonal anime lists from AniList, served as a Docker container
-with a built-in HTTP server and SQLite cache.
+with a built-in HTTP server and SQLite year cache.
 
 ## Quick start
 
@@ -23,16 +23,20 @@ http://<host>:8080/list?season=all&year=2026
 | Param | Values | Default |
 |-------|--------|---------|
 | `season` | `WINTER`, `SPRING`, `SUMMER`, `FALL`, `all` | `all` |
-| `year` | any year | current year |
+| `year` | any year (clamped to ±10 of current) | current year |
 | `category` | `series`, `series-new` (excludes prequels/parents) | `series` |
 
-If the requested season/year is included in the `PREWARM_YEARS` / `PREWARM_SEASONS`
-configuration, data is fetched synchronously at startup — the first request returns
-populated data immediately.
+If the requested year is included in `PREWARM_YEARS`, data is fetched
+synchronously at startup — the first request returns populated data immediately.
 
-For years/seasons *not* covered by prewarm, the first request returns an empty list
-and triggers an async backfill. Subsequent requests return populated data once the
-backfill completes.
+For years *not* covered by prewarm, the first request returns an empty list
+and triggers an async backfill. Subsequent requests return populated data once
+the backfill completes.
+
+For WINTER season, if the prior year is not yet cached, the first request
+triggers an async backfill for the prior year too. The response includes
+December-starting shows from the prior year's winter season once both years
+are cached.
 
 ## Configuration
 
@@ -42,10 +46,9 @@ All via environment variables:
 |----------|---------|---------|
 | `PORT` | `8080` | HTTP listen port |
 | `PREWARM_YEARS` | current year | CSV years to fetch at startup |
-| `PREWARM_SEASONS` | `all` | CSV seasons: `winter,spring,summer,fall` |
-| `MAX_PER_SEASON` | `100` | Max shows per season (clamped to 1–500) |
 | `INCLUDE_TYPES` | `TV,ONA` | Comma-separated AniList formats: `TV`, `ONA`, `TV_SHORT`, `OVA`, `SPECIAL`, `MOVIE` |
 | `EXCLUDE_TAGS` | — | Comma-separated AniList tags to exclude |
+| `FILTER_FUTURE_ENABLED` | `true` | Enable 3-month-ahead future filtering |
 | `MAPPING_PATH` | `/data/anibridge_mappings.json.zst` | Cached anibridge mapping file |
 | `MAPPING_URL` | GitHub release URL | Upstream anibridge mapping source |
 | `CACHE_DB_PATH` | `/data/cache.db` | SQLite file path |
@@ -55,30 +58,37 @@ All via environment variables:
 
 ### Hardcoded values
 
-The following operational parameters have fixed defaults and are not configurable:
+The following operational parameters have fixed defaults:
 
 - **HTTP timeout**: 30s (AniList API requests)
-- **Winter overflow**: always merges December premieres from the prior year
-- **Future filter**: 3 months ahead
-- **Cache refresh**: current year weekly, past years monthly
+- **Winter overflow**: December-starting shows from prior year merged automatically
+- **Future filter**: 3 months ahead (when `FILTER_FUTURE_ENABLED=true`)
+- **Cache refresh**: current year daily, past years weekly
 - **Cache eviction**: 14 days since last access
-- **Mapping refresh**: daily
+- **Mapping refresh**: daily (24h)
 
 ## How it works
 
 1. **Startup**: Server loads the anibridge mapping database, then prewarms the
-   configured years/seasons synchronously before accepting requests.
-2. **`/list`**: Sonarr hits the endpoint → checks SQLite cache.
-3. **Cache hit**: Returns cached JSON array of `[{"tvdbId":...,"title":"..."}]`.
-4. **Cache miss** (non-prewarmed data): Returns `[]`, triggers async backfill from AniList.
-5. **Backfill pipeline**: Fetches from AniList GraphQL → merges winter overflow → filters
-   (duration, blacklist, tags, future dates) → resolves MAL/AniList IDs to TVDB IDs via
-   anibridge mapping → stores in SQLite cache.
-6. **Background scheduler**: Refreshes stale entries (weekly for current year, monthly for
-   past), prunes entries not requested in 14 days, and checks for upstream
-   mapping updates daily.
-7. **Health check**: `GET /health` returns `{"status":"ok"}`.
+   configured years synchronously before accepting requests.
+2. **`/list`**: Sonarr hits the endpoint → checks SQLite year cache.
+3. **Cache hit**: Reads raw AniList JSON, filters on-the-fly (season, format,
+   duration, tags, future dates), resolves MAL/AniList IDs to TVDB IDs via the
+   in-memory anibridge mapping, and returns the JSON array.
+4. **Cache miss** (non-prewarmed year): Returns `[]`, triggers async backfill.
+5. **Backfill**: Fetches all anime for that year from AniList GraphQL (single
+   paginated query) → stores raw response in SQLite.
+6. **Background scheduler**: Refreshes stale year entries (daily for current
+   year, weekly for past), prunes entries not requested in 14 days, and checks
+   for upstream mapping updates every 24h.
+7. **Health check**: `GET /health` returns `{"status":"ok"}` (or `degraded` if
+   resolver is not loaded).
 8. **Debug**: `GET /cache/stats` returns cache hit/miss/entry counts.
+9. **Clear**: `POST /cache/clear` wipes all cached data.
+
+Since filtering and TVDB resolution happen on-the-fly per request, mapping
+updates take effect immediately without re-fetching AniList data, and config
+changes (format types, tag exclusions, future filtering) apply on restart.
 
 ## Building
 

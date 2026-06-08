@@ -7,8 +7,6 @@ import (
 	"github.com/calmcacil/sonarr-anime-bridge/internal/testutil"
 )
 
-
-
 func TestFilter_SkipsShortDuration(t *testing.T) {
 	t.Parallel()
 
@@ -205,7 +203,7 @@ func TestFilterFirstSeason_Mixed(t *testing.T) {
 	}
 }
 
-func TestFilterSeries(t *testing.T) {
+func TestFilterByFormats(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -214,62 +212,170 @@ func TestFilterSeries(t *testing.T) {
 	}{
 		{"TV", true},
 		{"ONA", true},
+		{"TV_SHORT", true},
 		{"MOVIE", false},
 		{"OVA", false},
 		{"SPECIAL", false},
-		{"", false},
 	}
 
+	formats := []string{"TV", "ONA", "TV_SHORT"}
 	for _, tc := range tests {
 		t.Run(tc.format, func(t *testing.T) {
 			shows := []anilist.Show{{Format: tc.format}}
-			result := FilterSeries(shows)
+			result := FilterByFormats(shows, formats)
 			got := len(result) == 1
 			if got != tc.want {
-				t.Errorf("FilterSeries(%q) kept=%v, want=%v", tc.format, got, tc.want)
+				t.Errorf("FilterByFormats(%q) kept=%v, want=%v", tc.format, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestFilterWinterMonth(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		month int
-		want  bool
-	}{
-		{12, true},
-		{1, true},
-		{2, true},
-		{3, true},
-		{4, false},
-		{7, false},
-		{11, false},
-	}
-
-	for _, tc := range tests {
-		t.Run("", func(t *testing.T) {
-			shows := []anilist.Show{
-				{StartDate: anilist.FuzzyDate{Month: &tc.month}},
-			}
-			result := FilterWinterMonth(shows)
-			got := len(result) == 1
-			if got != tc.want {
-				t.Errorf("FilterWinterMonth(month=%d) kept=%v, want=%v", tc.month, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestFilterWinterMonth_NilMonth(t *testing.T) {
+func TestFilterByFormats_EmptyFormats(t *testing.T) {
 	t.Parallel()
 
 	shows := []anilist.Show{
-		{StartDate: anilist.FuzzyDate{Month: nil}},
+		{Format: "TV"},
+		{Format: "MOVIE"},
 	}
-	result := FilterWinterMonth(shows)
-	if len(result) != 1 {
-		t.Error("expected show with nil month to be kept (cannot rule out)")
+
+	result := FilterByFormats(shows, nil)
+	if len(result) != 0 {
+		t.Error("expected no shows when formats list is empty")
+	}
+
+	result = FilterByFormats(shows, []string{})
+	if len(result) != 0 {
+		t.Error("expected no shows when formats list is empty")
+	}
+}
+
+func TestFilterBySeason(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		season string
+		want   bool
+	}{
+		{"WINTER", true},
+		{"SPRING", true},
+		{"SUMMER", true},
+		{"FALL", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.season, func(t *testing.T) {
+			shows := []anilist.Show{{Season: tc.season}}
+			result := FilterBySeason(shows, tc.season)
+			if len(result) != 1 {
+				t.Errorf("FilterBySeason(%q) should keep matching show", tc.season)
+			}
+		})
+	}
+}
+
+func TestFilterBySeason_ExcludesOtherSeasons(t *testing.T) {
+	t.Parallel()
+
+	shows := []anilist.Show{
+		{Season: "SPRING"},
+		{Season: "SUMMER"},
+		{Season: "FALL"},
+		{Season: "WINTER"},
+	}
+
+	result := FilterBySeason(shows, "WINTER")
+	if len(result) != 1 || result[0].Season != "WINTER" {
+		t.Errorf("expected only WINTER show, got %d shows", len(result))
+	}
+
+	result = FilterBySeason(shows, "SPRING")
+	if len(result) != 1 || result[0].Season != "SPRING" {
+		t.Errorf("expected only SPRING show, got %d shows", len(result))
+	}
+
+	result = FilterBySeason(shows, "SUMMER")
+	if len(result) != 1 || result[0].Season != "SUMMER" {
+		t.Errorf("expected only SUMMER show, got %d shows", len(result))
+	}
+
+	result = FilterBySeason(shows, "FALL")
+	if len(result) != 1 || result[0].Season != "FALL" {
+		t.Errorf("expected only FALL show, got %d shows", len(result))
+	}
+}
+
+func TestFilterBySeason_EmptySeasonFallback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		season string
+		month  int
+		want   bool
+	}{
+		{"WINTER/Dec", "WINTER", 12, true},
+		{"WINTER/Jan", "WINTER", 1, true},
+		{"WINTER/Mar", "WINTER", 3, true},
+		{"WINTER/Apr", "WINTER", 4, false},
+		{"SPRING/Apr", "SPRING", 4, true},
+		{"SPRING/Mar", "SPRING", 3, false},
+		{"SUMMER/Jul", "SUMMER", 7, true},
+		{"SUMMER/Jun", "SUMMER", 6, false},
+		{"FALL/Oct", "FALL", 10, true},
+		{"FALL/Dec", "FALL", 12, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shows := []anilist.Show{
+				{Season: "", StartDate: anilist.FuzzyDate{Month: &tc.month}},
+			}
+			result := FilterBySeason(shows, tc.season)
+			got := len(result) == 1
+			if got != tc.want {
+				t.Errorf("FilterBySeason(%q) with month=%d: kept=%v, want=%v", tc.season, tc.month, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFilterBySeason_EmptySeasonUnknownMonth(t *testing.T) {
+	t.Parallel()
+
+	shows := []anilist.Show{
+		{Season: "", StartDate: anilist.FuzzyDate{Month: nil}},
+	}
+
+	result := FilterBySeason(shows, "WINTER")
+	if len(result) != 0 {
+		t.Error("expected show with empty season and nil month to be excluded (cannot determine season)")
+	}
+}
+
+func TestFilterBySeason_All(t *testing.T) {
+	t.Parallel()
+
+	shows := []anilist.Show{
+		{Season: "WINTER"},
+		{Season: "SUMMER"},
+		{Season: ""},
+	}
+
+	result := FilterBySeason(shows, "ALL")
+	if len(result) != 3 {
+		t.Errorf("expected all 3 shows for ALL, got %d", len(result))
+	}
+}
+
+func TestFilterBySeason_UnknownSeason(t *testing.T) {
+	t.Parallel()
+
+	shows := []anilist.Show{
+		{Season: "WINTER"},
+	}
+
+	result := FilterBySeason(shows, "INVALID")
+	if len(result) != 0 {
+		t.Error("expected no shows for unknown season")
 	}
 }
