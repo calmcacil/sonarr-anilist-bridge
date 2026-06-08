@@ -12,6 +12,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.7.0] — 2026-06-08
+
+### Added
+skip prewarm when cache is fresh (#28)
+
 ## [2.6.3] — 2026-06-08
 
 ### Fixed
@@ -181,3 +187,4 @@ rename repo to sonarr-anime-bridge
 [2.6.1]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.1
 [2.6.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.2
 [2.6.3]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.3
+[2.7.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.0
