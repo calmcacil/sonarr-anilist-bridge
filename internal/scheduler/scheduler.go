@@ -317,7 +317,9 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 	shows = filter.Filter(shows, filter.Config{
 		ExcludeTags: s.cfg.ExcludeTags,
 	})
-	shows = filter.FilterFuture(shows, 3)
+	if s.cfg.FilterFutureEnabled {
+		shows = filter.FilterFuture(shows, 3)
+	}
 
 	if category == "series-new" {
 		shows = filter.FilterFirstSeason(shows)
