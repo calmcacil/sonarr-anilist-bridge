@@ -66,7 +66,7 @@ func run() error {
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      loggingMiddleware(recoveryMiddleware(mux)),
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  30 * time.Second,
 	}
 
@@ -151,10 +151,16 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 
 			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year); err != nil {
 				slog.Error("trigger backfill failed", "error", err)
+				writeJSON(w, []byte("[]"))
+				return
 			}
 
-			writeJSON(w, []byte("[]"))
-			return
+			data, fresh, ok = db.GetYear(year)
+			if !ok {
+				slog.Error("backfill succeeded but data still missing", "year", year)
+				writeJSON(w, []byte("[]"))
+				return
+			}
 		}
 
 		if (season == "WINTER" || season == "ALL") && !db.HasYear(year-1) {
