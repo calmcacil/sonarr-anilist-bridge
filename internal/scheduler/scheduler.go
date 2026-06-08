@@ -36,7 +36,7 @@ func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 	return &Scheduler{
 		cache:  c,
 		cfg:    cfg,
-		client:   anilist.NewWithTimeout(time.Duration(cfg.AniListTimeoutMin) * time.Minute),
+		client:   anilist.NewWithTimeout(30 * time.Second),
 		resolver: mapping.NewResolver(),
 		inflight: make(map[string]bool),
 	}
@@ -94,7 +94,7 @@ func (s *Scheduler) StartBackground(ctx context.Context) {
 				slog.Error("panic in mapping refresh background worker", "recover", r)
 			}
 		}()
-		mapTicker := time.NewTicker(time.Duration(s.cfg.AnibridgeRefreshDays) * 24 * time.Hour)
+		mapTicker := time.NewTicker(24 * time.Hour)
 		defer mapTicker.Stop()
 
 		for {
@@ -228,10 +228,7 @@ func (s *Scheduler) refresh(ctx context.Context, season string, year int, catego
 	}
 
 	allShows := make([]Show, 0)
-	formats := []string{"TV"}
-	if s.cfg.IncludeONA {
-		formats = append(formats, "ONA")
-	}
+	formats := s.cfg.IncludeTypes
 
 	for _, ssn := range seasons {
 		shows, err := s.processSeason(ctx, ssn, year, formats, category)
@@ -263,7 +260,7 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 		return nil, fmt.Errorf("fetch season %s %d: %w", season, year, err)
 	}
 
-	if s.cfg.WinterOverflow && season == "WINTER" {
+	if season == "WINTER" {
 		shows = s.fetchWinterOverflow(ctx, year, formats, shows)
 	}
 
@@ -276,7 +273,7 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 	shows = filter.Filter(shows, filter.Config{
 		ExcludeTags: s.cfg.ExcludeTags,
 	})
-	shows = filter.FilterFuture(shows, s.cfg.AheadMonthsOrDefault())
+	shows = filter.FilterFuture(shows, 3)
 
 	if category == "series-new" {
 		shows = filter.FilterFirstSeason(shows)
@@ -331,7 +328,7 @@ func (s *Scheduler) resolveShows(shows []anilist.Show) []Show {
 
 func (s *Scheduler) refreshStale(ctx context.Context) {
 	currentYear := time.Now().Year()
-	keys, err := s.cache.NeedsRefresh(currentYear, s.cfg.RefreshCurrentDays, s.cfg.RefreshPastDays)
+	keys, err := s.cache.NeedsRefresh(currentYear, 7, 30)
 	if err != nil {
 		slog.Error("needs refresh query failed", "error", err)
 		return
@@ -348,7 +345,7 @@ func (s *Scheduler) prune(ctx context.Context) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
-	n, err := s.cache.PruneStale(s.cfg.CacheStaleDays)
+	n, err := s.cache.PruneStale(14)
 	if err != nil {
 		slog.Error("prune failed", "error", err)
 		return
