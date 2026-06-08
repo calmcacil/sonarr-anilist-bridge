@@ -10,6 +10,13 @@ with conventional commits (`feat:`, `fix:`, `perf:`, etc.) triggers a
 version bump and GitHub Release with auto-generated notes.
 
 
+
+## [2.6.2] — 2026-06-08
+
+### Fixed
+wait for backfill instead of returning empty response (#26)
+skip CI publish for docs-only changes (#24)
+
 ## [2.6.1] — 2026-06-08
 
 ### Fixed
@@ -166,3 +173,4 @@ rename repo to sonarr-anime-bridge
 [2.5.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.5.0
 [2.6.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.0
 [2.6.1]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.1
+[2.6.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.2
