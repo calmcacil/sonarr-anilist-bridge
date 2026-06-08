@@ -3,6 +3,7 @@ package cache
 import (
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -78,9 +79,22 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("create anilist_cache table: %w", err)
 	}
 
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_season_cache_refresh
+		ON season_cache(fetched_at, is_empty)
+	`); err != nil {
+		db.Close() //nolint:errcheck // cleanup on error path
+		return nil, fmt.Errorf("create refresh index: %w", err)
+	}
+
 	if err := migrateMappingVersion(db); err != nil {
 		db.Close() //nolint:errcheck // cleanup on error path
 		return nil, fmt.Errorf("migrate season_cache: %w", err)
+	}
+
+	if err := db.Ping(); err != nil {
+		db.Close() //nolint:errcheck // cleanup on error path
+		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 
 	return &Cache{
@@ -119,8 +133,22 @@ func (c *Cache) Get(season string, year int, category string) (data []byte, fres
 		slog.Warn("failed to update last_hit", "error", err, "season", season, "year", year, "category", category)
 	}
 
+	if isEmpty == 1 && string(raw) != "[]" {
+		slog.Warn("empty entry missing placeholder data", "season", season, "year", year, "category", category)
+		return nil, false, false, false
+	}
+	if isEmpty == 0 && string(raw) == "[]" {
+		slog.Warn("non-empty entry has empty placeholder data", "season", season, "year", year, "category", category)
+		return nil, false, false, false
+	}
+
 	if isEmpty == 1 {
 		return nil, false, true, true
+	}
+
+	if !json.Valid(raw) {
+		slog.Warn("invalid JSON in cache entry", "season", season, "year", year, "category", category)
+		return nil, false, false, false
 	}
 
 	freshnessThreshold := c.pastYearFreshness
@@ -166,8 +194,22 @@ func (c *Cache) GetWithVersion(season string, year int, category string, mapping
 		slog.Warn("failed to update last_hit", "error", err, "season", season, "year", year, "category", category)
 	}
 
+	if isEmpty == 1 && string(raw) != "[]" {
+		slog.Warn("empty entry missing placeholder data", "season", season, "year", year, "category", category)
+		return nil, false, false, false
+	}
+	if isEmpty == 0 && string(raw) == "[]" {
+		slog.Warn("non-empty entry has empty placeholder data", "season", season, "year", year, "category", category)
+		return nil, false, false, false
+	}
+
 	if isEmpty == 1 {
 		return nil, false, true, true
+	}
+
+	if !json.Valid(raw) {
+		slog.Warn("invalid JSON in cache entry", "season", season, "year", year, "category", category)
+		return nil, false, false, false
 	}
 
 	freshnessThreshold := c.pastYearFreshness
@@ -216,6 +258,11 @@ func (c *Cache) SetEmptyIfNotExists(season string, year int, category string) (b
 	}
 	n, _ := result.RowsAffected()
 	return n > 0, nil
+}
+
+func (c *Cache) Vacuum() error {
+	_, err := c.db.Exec("VACUUM")
+	return err
 }
 
 func (c *Cache) PruneStale(staleDays int) (int, error) {
