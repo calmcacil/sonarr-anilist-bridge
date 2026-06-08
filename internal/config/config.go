@@ -11,38 +11,26 @@ import (
 const (
 	DefaultAnibridgeMappingPath = "/data/anibridge_mappings.json.zst"
 	DefaultAnibridgeURL         = "https://github.com/anibridge/anibridge-mappings/releases/download/v3/mappings.json.zst"
-	DefaultAnibridgeRefreshDays = 1
 )
 
 type Config struct {
-	Port               int
-	PrewarmYears       []int
-	PrewarmSeasons     []string
-	MaxPerSeason       int
-	IncludeONA         bool
-	WinterOverflow     bool
-	AheadMonths        *int
-	ExcludeTags        []string
-	CacheDBPath        string
-	CacheStaleDays     int
-	RefreshCurrentDays int
-	RefreshPastDays    int
-	AniListTimeoutMin  int
-	LogLevel           string
+	Port           int
+	PrewarmYears   []int
+	PrewarmSeasons []string
+	MaxPerSeason   int
+	IncludeTypes   []string
+	ExcludeTags    []string
+	CacheDBPath    string
+	LogLevel       string
 
 	AnibridgeMappingPath string
-	AnibridgeRefreshDays int
 	AnibridgeURL         string
 }
 
 const (
-	DefaultPort               = 8080
-	DefaultMaxPerSeason       = 100
-	DefaultCacheDBPath        = "/data/cache.db"
-	DefaultCacheStaleDays     = 14
-	DefaultRefreshCurrentDays = 7
-	DefaultRefreshPastDays    = 30
-	DefaultAniListTimeoutMin  = 10
+	DefaultPort         = 8080
+	DefaultMaxPerSeason = 100
+	DefaultCacheDBPath  = "/data/cache.db"
 )
 
 func AllSeasons() []string {
@@ -78,46 +66,30 @@ func ResolveSeasons(raw []string) []string {
 	return out
 }
 
-func (c *Config) AheadMonthsOrDefault() int {
-	if c.AheadMonths != nil {
-		return *c.AheadMonths
-	}
-	return 3
-}
-
 func Load() *Config {
 	cfg := &Config{
-		Port:               getEnvInt("PORT", DefaultPort),
-		MaxPerSeason:       getEnvInt("MAX_PER_SEASON", DefaultMaxPerSeason),
-		IncludeONA:         getEnvBool("ALG_ANILIST_INCLUDE_ONA", true),
-		WinterOverflow:     getEnvBool("ALG_ANILIST_WINTER_OVERFLOW", true),
-		CacheDBPath:        getEnvStr("CACHE_DB_PATH", DefaultCacheDBPath),
-		CacheStaleDays:     getEnvInt("CACHE_STALE_DAYS", DefaultCacheStaleDays),
-		RefreshCurrentDays: getEnvInt("REFRESH_CURRENT_DAYS", DefaultRefreshCurrentDays),
-		RefreshPastDays:    getEnvInt("REFRESH_PAST_DAYS", DefaultRefreshPastDays),
-		AniListTimeoutMin:  max(getEnvInt("ALG_ANILIST_TIMEOUT_MINUTES", DefaultAniListTimeoutMin), 1),
-		LogLevel:           getEnvStr("LOG_LEVEL", "info"),
+		Port:     getEnvInt("PORT", DefaultPort),
+		MaxPerSeason: getEnvInt("MAX_PER_SEASON", DefaultMaxPerSeason),
+		CacheDBPath:  getEnvStr("CACHE_DB_PATH", DefaultCacheDBPath),
+		LogLevel:     getEnvStr("LOG_LEVEL", "info"),
 
-		AnibridgeMappingPath: getEnvStr("ALG_ANIBRIDGE_MAPPING_PATH", DefaultAnibridgeMappingPath),
-		AnibridgeRefreshDays: getEnvInt("ALG_ANIBRIDGE_REFRESH_DAYS", DefaultAnibridgeRefreshDays),
-		AnibridgeURL:         getEnvStr("ALG_ANIBRIDGE_URL", DefaultAnibridgeURL),
-	}
-
-	// Clamp to minimum 1 day to prevent tight-loop ticker
-	if cfg.AnibridgeRefreshDays < 1 {
-		cfg.AnibridgeRefreshDays = 1
+		AnibridgeMappingPath: getEnvStr("MAPPING_PATH", DefaultAnibridgeMappingPath),
+		AnibridgeURL:         getEnvStr("MAPPING_URL", DefaultAnibridgeURL),
 	}
 
 	// Validate and clamp Port
 	if cfg.Port < 1 || cfg.Port > 65535 {
+		slog.Warn("PORT invalid, using default", "value", cfg.Port, "default", DefaultPort)
 		cfg.Port = DefaultPort
 	}
 
 	// Clamp MaxPerSeason to reasonable bounds
 	if cfg.MaxPerSeason < 1 {
+		slog.Warn("MAX_PER_SEASON clamped to 1", "value", cfg.MaxPerSeason)
 		cfg.MaxPerSeason = 1
 	}
 	if cfg.MaxPerSeason > 500 {
+		slog.Warn("MAX_PER_SEASON clamped to 500", "value", cfg.MaxPerSeason)
 		cfg.MaxPerSeason = 500
 	}
 
@@ -133,19 +105,21 @@ func Load() *Config {
 	}
 
 	cfg.PrewarmSeasons = ResolveSeasons(parseStringList("PREWARM_SEASONS", []string{"all"}))
+	cfg.IncludeTypes = parseStringList("INCLUDE_TYPES", []string{"TV", "ONA"})
+	cfg.ExcludeTags = parseStringList("EXCLUDE_TAGS", nil)
 
-	if aheadStr := os.Getenv("AHEAD_MONTHS"); aheadStr != "" {
-		if m, err := strconv.Atoi(aheadStr); err == nil && m >= 0 {
-			cfg.AheadMonths = &m
-		}
-	}
-	if aheadStr := os.Getenv("ALG_ANILIST_AHEAD_MONTHS"); aheadStr != "" && cfg.AheadMonths == nil {
-		if m, err := strconv.Atoi(aheadStr); err == nil && m >= 0 {
-			cfg.AheadMonths = &m
-		}
-	}
-
-	cfg.ExcludeTags = parseStringList("ALG_ANILIST_EXCLUDE_TAGS", nil)
+	slog.Info("config loaded",
+		"port", cfg.Port,
+		"max_per_season", cfg.MaxPerSeason,
+		"include_types", cfg.IncludeTypes,
+		"exclude_tags", cfg.ExcludeTags,
+		"prewarm_years", cfg.PrewarmYears,
+		"prewarm_seasons", cfg.PrewarmSeasons,
+		"cache_db_path", cfg.CacheDBPath,
+		"mapping_path", cfg.AnibridgeMappingPath,
+		"mapping_url", cfg.AnibridgeURL,
+		"log_level", cfg.LogLevel,
+	)
 
 	return cfg
 }
@@ -166,14 +140,6 @@ func getEnvInt(key string, def int) int {
 	return def
 }
 
-func getEnvBool(key string, def bool) bool {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	return v == "1" || strings.EqualFold(v, "true")
-}
-
 func parseStringList(key string, def []string) []string {
 	v := os.Getenv(key)
 	if v == "" {
@@ -184,7 +150,7 @@ func parseStringList(key string, def []string) []string {
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p != "" {
-			out = append(out, p)
+			out = append(out, strings.ToUpper(p))
 		}
 	}
 	if len(out) == 0 {
