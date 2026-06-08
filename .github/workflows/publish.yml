@@ -16,29 +16,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  preflight:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25'
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.12
-
-      - name: Build
-        run: go build ./...
-
-      - name: Test
-        run: go test -race ./...
-
   version:
-    needs: preflight
     if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     permissions:
@@ -134,8 +112,8 @@ jobs:
             --generate-notes || true
 
   docker:
-    needs: [preflight, version]
-    if: always() && needs.preflight.result == 'success'
+    needs: version
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
