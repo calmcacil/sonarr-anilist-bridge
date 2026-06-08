@@ -42,6 +42,11 @@ func New(c *cache.Cache, cfg *config.Config) *Scheduler {
 	}
 }
 
+// ResolverLoaded reports whether the anibridge mapping has been loaded.
+func (s *Scheduler) ResolverLoaded() bool {
+	return s.resolver != nil && s.resolver.Mapping() != nil
+}
+
 // LoadResolver loads the anibridge mapping synchronously. Must be called
 // before any Resolve / ResolveBatch call.
 func (s *Scheduler) LoadResolver() {
@@ -263,10 +268,10 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 	}
 
 	if season == "WINTER" {
-		shows = filterWinterMonth(shows)
+		shows = filter.FilterWinterMonth(shows)
 	}
 
-	shows = filterSeries(shows)
+	shows = filter.FilterSeries(shows)
 
 	shows = filter.Filter(shows, filter.Config{
 		ExcludeTags: s.cfg.ExcludeTags,
@@ -274,7 +279,7 @@ func (s *Scheduler) processSeason(ctx context.Context, season string, year int, 
 	shows = filter.FilterFuture(shows, s.cfg.AheadMonthsOrDefault())
 
 	if category == "series-new" {
-		shows = filterFirstSeason(shows)
+		shows = filter.FilterFirstSeason(shows)
 	}
 
 	return s.resolveShows(shows), nil
@@ -351,36 +356,4 @@ func (s *Scheduler) prune(ctx context.Context) {
 	if n > 0 {
 		slog.Info("pruned cache entries", "count", n)
 	}
-}
-
-func filterSeries(shows []anilist.Show) []anilist.Show {
-	var out []anilist.Show
-	for _, sh := range shows {
-		if sh.IsSeries() {
-			out = append(out, sh)
-		}
-	}
-	return out
-}
-
-// filterFirstSeason keeps only shows that are first-season entries
-// (no PREQUEL or PARENT relations).
-func filterFirstSeason(shows []anilist.Show) []anilist.Show {
-	var out []anilist.Show
-	for _, sh := range shows {
-		if sh.IsNew() {
-			out = append(out, sh)
-		}
-	}
-	return out
-}
-
-func filterWinterMonth(shows []anilist.Show) []anilist.Show {
-	var filtered []anilist.Show
-	for _, sh := range shows {
-		if sh.IsWinterStart() {
-			filtered = append(filtered, sh)
-		}
-	}
-	return filtered
 }

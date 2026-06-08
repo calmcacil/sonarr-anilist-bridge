@@ -19,11 +19,9 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+
+	"github.com/calmcacil/sonarr-anime-bridge/internal/config"
 )
-
-const DefaultAnibridgeURL = "https://github.com/anibridge/anibridge-mappings/releases/download/v3/mappings.json.zst"
-
-const DefaultAnibridgePath = "/data/anibridge_mappings.json.zst"
 
 const defaultAnibridgeHTTPTimeout = 60 * time.Second
 
@@ -92,10 +90,10 @@ func (m *AnibridgeMapping) Keys() (malKeys, aniListKeys []int) {
 // cached file when possible.
 func LoadOrFetch(ctx context.Context, path, url string) (*AnibridgeMapping, Metadata, error) {
 	if path == "" {
-		path = DefaultAnibridgePath
+		path = config.DefaultAnibridgeMappingPath
 	}
 	if url == "" {
-		url = DefaultAnibridgeURL
+		url = config.DefaultAnibridgeURL
 	}
 
 	meta, _ := ReadMetadata(metaPath(path))

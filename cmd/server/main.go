@@ -58,7 +58,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/list", handleList(db, sched, cfg))
-	mux.HandleFunc("/health", handleHealth(db))
+	mux.HandleFunc("/health", handleHealth(db, sched))
 	mux.HandleFunc("/cache/stats", handleCacheStats(db))
 
 	server := &http.Server{
@@ -176,16 +176,20 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 	}
 }
 
-func handleHealth(db *cache.Cache) http.HandlerFunc {
+func handleHealth(db *cache.Cache, sched *scheduler.Scheduler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		healthy := true
 		if err := db.Ping(); err != nil {
 			slog.Error("health check failed", "error", err)
 			healthy = false
 		}
+		resolverOK := sched.ResolverLoaded()
 		w.Header().Set("Content-Type", "application/json")
-		if healthy {
+		if healthy && resolverOK {
 			w.Write([]byte(`{"status":"ok"}`))
+		} else if healthy {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"degraded","reason":"resolver not loaded"}`))
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte(`{"status":"unhealthy"}`))
@@ -217,7 +221,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		srw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(srw, r)
-		slog.Debug("request",
+		slog.Info("request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", srw.status,

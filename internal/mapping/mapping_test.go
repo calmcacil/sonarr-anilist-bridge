@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calmcacil/sonarr-anime-bridge/internal/config"
+
 	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
 	"github.com/klauspost/compress/zstd"
 )
@@ -479,7 +481,7 @@ func TestWriteAndReadMetadata_RoundTrip(t *testing.T) {
 		LastModified: "Fri, 05 Jun 2026 06:17:52 GMT",
 		MD5:          "ee20b3531f9453369bbcb16c1cda9a5d",
 		FetchedAt:    time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC),
-		URL:          DefaultAnibridgeURL,
+		URL:          config.DefaultAnibridgeURL,
 	}
 
 	if err := WriteMetadata(path, want); err != nil {

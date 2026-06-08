@@ -1,8 +1,10 @@
 .git
 .gitignore
 .DS_Store
+.github/
 specs/
 README.md
 LICENSE
 NOTICE
 *.md
+*_test.go
