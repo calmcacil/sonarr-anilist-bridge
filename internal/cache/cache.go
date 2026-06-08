@@ -1,9 +1,11 @@
 package cache
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -54,11 +56,25 @@ func Open(path string) (*Cache, error) {
 			is_empty  INTEGER NOT NULL DEFAULT 0,
 			fetched_at INTEGER NOT NULL,
 			last_hit  INTEGER NOT NULL DEFAULT 0,
+			mapping_version TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (season, year, category)
 		)
 	`); err != nil {
 		db.Close() //nolint:errcheck // cleanup on error path
 		return nil, fmt.Errorf("create table: %w", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS anilist_cache (
+			season    TEXT NOT NULL,
+			year      INTEGER NOT NULL,
+			data      BLOB NOT NULL,
+			fetched_at INTEGER NOT NULL,
+			PRIMARY KEY (season, year)
+		)
+	`); err != nil {
+		db.Close() //nolint:errcheck // cleanup on error path
+		return nil, fmt.Errorf("create anilist_cache table: %w", err)
 	}
 
 	return &Cache{
@@ -73,14 +89,19 @@ func (c *Cache) Close() error {
 }
 
 func (c *Cache) Get(season string, year int, category string) (data []byte, fresh bool, isPending bool, ok bool) {
+	return c.GetWithVersion(season, year, category, "")
+}
+
+func (c *Cache) GetWithVersion(season string, year int, category string, currentVersion string) (data []byte, fresh bool, isPending bool, ok bool) {
 	var raw []byte
 	var isEmpty int
 	var fetchedAt int64
+	var storedVersion string
 
 	err := c.db.QueryRow(
-		`SELECT data, is_empty, fetched_at FROM season_cache WHERE season=? AND year=? AND category=?`,
+		`SELECT data, is_empty, fetched_at, mapping_version FROM season_cache WHERE season=? AND year=? AND category=?`,
 		season, year, category,
-	).Scan(&raw, &isEmpty, &fetchedAt)
+	).Scan(&raw, &isEmpty, &fetchedAt, &storedVersion)
 
 	if err != nil {
 		c.misses.Add(1)
@@ -106,15 +127,25 @@ func (c *Cache) Get(season string, year int, category string) (data []byte, fres
 		freshnessThreshold = c.currentYearFreshness
 	}
 	fresh = time.Since(time.Unix(fetchedAt, 0)) < freshnessThreshold
+
+	// Invalidate if mapping version changed (and we have a version to compare)
+	if currentVersion != "" && storedVersion != "" && currentVersion != storedVersion {
+		fresh = false
+	}
+
 	return raw, fresh, false, true
 }
 
 func (c *Cache) Set(season string, year int, category string, data []byte) error {
+	return c.SetWithVersion(season, year, category, data, "")
+}
+
+func (c *Cache) SetWithVersion(season string, year int, category string, data []byte, mappingVersion string) error {
 	now := time.Now().Unix()
 	_, err := c.db.Exec(
-		`INSERT OR REPLACE INTO season_cache (season, year, category, data, is_empty, fetched_at, last_hit)
-		 VALUES (?, ?, ?, ?, 0, ?, ?)`,
-		season, year, category, data, now, now,
+		`INSERT OR REPLACE INTO season_cache (season, year, category, data, is_empty, fetched_at, last_hit, mapping_version)
+		 VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
+		season, year, category, data, now, now, mappingVersion,
 	)
 	return err
 }
@@ -217,4 +248,54 @@ func (c *Cache) Stats() CacheStats {
 
 func (c *Cache) Ping() error {
 	return c.db.Ping()
+}
+
+func MappingVersion(malKeys, anilistKeys []int) string {
+	sortedMAL := make([]int, len(malKeys))
+	copy(sortedMAL, malKeys)
+	sort.Ints(sortedMAL)
+
+	sortedAni := make([]int, len(anilistKeys))
+	copy(sortedAni, anilistKeys)
+	sort.Ints(sortedAni)
+
+	h := sha256.New()
+	for _, k := range sortedMAL {
+		fmt.Fprintf(h, "mal:%d,", k) //nolint:errcheck // hash.Hash.Write never fails
+	}
+	for _, k := range sortedAni {
+		fmt.Fprintf(h, "ani:%d,", k) //nolint:errcheck // hash.Hash.Write never fails
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)[:8])
+}
+
+func (c *Cache) GetAniList(season string, year int) (data []byte, fresh bool, ok bool) {
+	var raw []byte
+	var fetchedAt int64
+
+	err := c.db.QueryRow(
+		`SELECT data, fetched_at FROM anilist_cache WHERE season=? AND year=?`,
+		season, year,
+	).Scan(&raw, &fetchedAt)
+
+	if err != nil {
+		return nil, false, false
+	}
+
+	freshnessThreshold := c.pastYearFreshness
+	if year == time.Now().Year() {
+		freshnessThreshold = c.currentYearFreshness
+	}
+	fresh = time.Since(time.Unix(fetchedAt, 0)) < freshnessThreshold
+	return raw, fresh, true
+}
+
+func (c *Cache) SetAniList(season string, year int, data []byte) error {
+	now := time.Now().Unix()
+	_, err := c.db.Exec(
+		`INSERT OR REPLACE INTO anilist_cache (season, year, data, fetched_at)
+		 VALUES (?, ?, ?, ?)`,
+		season, year, data, now,
+	)
+	return err
 }
