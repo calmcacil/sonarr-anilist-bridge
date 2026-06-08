@@ -100,7 +100,7 @@ func TestIntegration_Prewarm(t *testing.T) {
 	}
 
 	for _, category := range []string{"series", "series-new"} {
-		data, fresh, isPending, ok := c.GetWithVersion("WINTER", time.Now().Year(), category, sched.MappingVersion())
+		data, fresh, isPending, ok := c.GetWithVersion("WINTER", time.Now().Year(), category, sched.MappingVersion(), true)
 		if !ok {
 			t.Fatalf("expected cache hit for %s", category)
 		}
