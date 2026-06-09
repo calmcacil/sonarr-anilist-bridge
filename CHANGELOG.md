@@ -6,6 +6,20 @@ Releases are automated via the `publish.yml` workflow: each push to `main`
 with conventional commits (`feat:`, `fix:`, `perf:`, etc.) triggers a
 version bump and GitHub Release with auto-generated notes.
 
+
+## [2.7.2] — 2026-06-09
+
+### Fixed
+add major-version Docker tags and delete v0.1.0 GHCR image (#33)
+
+### Documentation
+fix issues found in review
+add PREFLIGHT_TEST.md and REGRESSION_TESTS.md, update AGENTS.md (#32)
+add container flow documentation (#30)
+
+### Miscellaneous
+clean up blank lines in CHANGELOG header
+
 ## [2.7.1] — 2026-06-08
 ### Fixed
 start HTTP listener before prewarm (#29)
@@ -134,3 +148,4 @@ rename repo to sonarr-anime-bridge
 [2.6.3]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.6.3
 [2.7.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.0
 [2.7.1]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.1
+[2.7.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.2
