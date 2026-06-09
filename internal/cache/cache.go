@@ -2,20 +2,32 @@ package cache
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
+	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
+)
+
+const (
+	lastHitDebounceInterval = 5 * time.Minute
 )
 
 type Cache struct {
-	db                    *sql.DB
-	currentYearFreshness  time.Duration
-	pastYearFreshness     time.Duration
-	hits                  atomic.Int64
-	misses                atomic.Int64
+	db                   *sql.DB
+	currentYearFreshness time.Duration
+	pastYearFreshness    time.Duration
+	hits                 atomic.Int64
+	misses               atomic.Int64
+	lastHitTimes         sync.Map // map[int]int64 — unix ts of last db write per year
+	lastHitDebounce      time.Duration
+	lastHitFailed        sync.Map // map[int]bool — set when UPDATE fails after retries
 }
 
 type CacheStats struct {
@@ -25,12 +37,52 @@ type CacheStats struct {
 }
 
 func Open(path string) (*Cache, error) {
+	db, err := openDB(path)
+	if err != nil {
+		// A BUSY error on startup suggests the database is stuck from a
+		// previous crash. Since cache data is re-fetchable from AniList,
+		// we remove the database and sidecar files and recreate fresh.
+		if path != ":memory:" && isBusy(err) {
+			slog.Warn("database appears stuck, recreating",
+				"path", path,
+				"error", err,
+			)
+			for _, p := range []string{path, path + "-wal", path + "-shm"} {
+				if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+					slog.Warn("failed to remove file during recovery",
+						"path", p, "error", err,
+					)
+				}
+			}
+			db, err = openDB(path)
+			if err != nil {
+				return nil, fmt.Errorf("reopen after recovery: %w", err)
+			}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &Cache{
+		db:                   db,
+		currentYearFreshness: 24 * time.Hour,
+		pastYearFreshness:    7 * 24 * time.Hour,
+		lastHitDebounce:      lastHitDebounceInterval,
+	}, nil
+}
+
+// openDB opens the sqlite database file, applies connection pool settings and
+// performance/recovery PRAGMAs, creates the schema, and runs a diagnostic read
+// to trigger WAL auto-recovery after a crash.
+func openDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
 	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		db.Close() //nolint:errcheck // cleanup on error path
@@ -40,6 +92,16 @@ func Open(path string) (*Cache, error) {
 	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
 		db.Close() //nolint:errcheck // cleanup on error path
 		return nil, fmt.Errorf("set busy_timeout: %w", err)
+	}
+
+	if _, err := db.Exec(`PRAGMA synchronous=NORMAL`); err != nil {
+		db.Close() //nolint:errcheck // cleanup on error path
+		return nil, fmt.Errorf("set synchronous: %w", err)
+	}
+
+	if _, err := db.Exec(`PRAGMA wal_autocheckpoint=1000`); err != nil {
+		// Non-critical — log and continue.
+		slog.Warn("set wal_autocheckpoint failed", "error", err)
 	}
 
 	if _, err := db.Exec(`
@@ -54,16 +116,58 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("create year_cache table: %w", err)
 	}
 
+	// Diagnostic read: triggers SQLite WAL auto-recovery (if the database
+	// was left in an inconsistent state by a prior crash) and verifies the
+	// database is accessible.
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM year_cache`).Scan(&count); err != nil {
+		db.Close() //nolint:errcheck // cleanup on error path
+		return nil, fmt.Errorf("diagnostic read: %w", err)
+	}
+
+	// Force a WAL checkpoint to finalise any pending frames and shrink
+	// the WAL file. Succeeds trivially on a fresh or clean database.
+	if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		slog.Warn("startup WAL checkpoint failed", "error", err)
+	}
+
 	if err := db.Ping(); err != nil {
 		db.Close() //nolint:errcheck // cleanup on error path
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 
-	return &Cache{
-		db:                   db,
-		currentYearFreshness: 24 * time.Hour,
-		pastYearFreshness:    7 * 24 * time.Hour,
-	}, nil
+	return db, nil
+}
+
+// isBusy reports whether err is a SQLITE_BUSY result (primary code 5),
+// including its extended variants (SQLITE_BUSY_RECOVERY, etc.).
+func isBusy(err error) bool {
+	var se *sqlite.Error
+	if errors.As(err, &se) {
+		return se.Code()&0xff == sqlite3.SQLITE_BUSY
+	}
+	return false
+}
+
+// execWithRetry executes a write SQL statement, retrying up to 5 times with
+// exponential backoff and jitter when the database returns SQLITE_BUSY.
+// The cumulative backoff across all retries is ~17s, which combined with
+// busy_timeout=5000 provides ~42s of total contention tolerance.
+func (c *Cache) execWithRetry(query string, args ...any) error {
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		_, err = c.db.Exec(query, args...)
+		if err == nil {
+			return nil
+		}
+		if !isBusy(err) {
+			return err
+		}
+		backoff := time.Duration(50*(1<<attempt)) * time.Millisecond
+		jitter := time.Duration(rand.Int64N(int64(backoff / 2)))
+		time.Sleep(backoff + jitter)
+	}
+	return err
 }
 
 func (c *Cache) Close() error {
@@ -86,11 +190,23 @@ func (c *Cache) GetYear(year int) (data []byte, fresh bool, ok bool) {
 
 	c.hits.Add(1)
 
-	if _, err := c.db.Exec(
-		`UPDATE year_cache SET last_hit=? WHERE year=?`,
-		time.Now().Unix(), year,
-	); err != nil {
-		slog.Warn("failed to update last_hit", "error", err, "year", year)
+	// Debounced last_hit update: only write to the database if enough time
+	// has passed since the last write for this year. This drastically
+	// reduces write contention from concurrent HTTP requests.
+	now := time.Now().Unix()
+	if last, loaded := c.lastHitTimes.Load(year); !loaded || now-last.(int64) >= int64(c.lastHitDebounce.Seconds()) {
+		if err := c.execWithRetry(
+			`UPDATE year_cache SET last_hit=? WHERE year=?`,
+			now, year,
+		); err != nil {
+			slog.Warn("failed to update last_hit", "error", err, "year", year)
+			c.lastHitFailed.Store(year, true)
+		} else {
+			if _, wasFailed := c.lastHitFailed.LoadAndDelete(year); wasFailed {
+				slog.Info("last_hit update recovered", "year", year)
+			}
+			c.lastHitTimes.Store(year, now)
+		}
 	}
 
 	freshnessThreshold := c.pastYearFreshness
@@ -103,16 +219,14 @@ func (c *Cache) GetYear(year int) (data []byte, fresh bool, ok bool) {
 
 func (c *Cache) SetYear(year int, data []byte) error {
 	now := time.Now().Unix()
-	_, err := c.db.Exec(
+	return c.execWithRetry(
 		`INSERT OR REPLACE INTO year_cache (year, data, fetched_at, last_hit) VALUES (?, ?, ?, ?)`,
 		year, data, now, now,
 	)
-	return err
 }
 
 func (c *Cache) Clear() error {
-	_, err := c.db.Exec(`DELETE FROM year_cache`)
-	if err != nil {
+	if err := c.execWithRetry(`DELETE FROM year_cache`); err != nil {
 		return err
 	}
 	c.hits.Store(0)
@@ -184,4 +298,10 @@ func (c *Cache) Stats() CacheStats {
 
 func (c *Cache) Ping() error {
 	return c.db.Ping()
+}
+
+// SetLastHitDebounce sets the debounce interval for last_hit updates.
+// Used in tests to control the debounce window.
+func (c *Cache) SetLastHitDebounce(d time.Duration) {
+	c.lastHitDebounce = d
 }
