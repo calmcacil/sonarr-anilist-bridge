@@ -8,6 +8,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.7.4] — 2026-06-09
+
+### Fixed
+set PRAGMA busy_timeout to prevent SQLITE_BUSY on last_hit updates (#34)
+
 ## [2.7.3] — 2026-06-09
 
 ### Fixed
@@ -156,3 +162,4 @@ rename repo to sonarr-anime-bridge
 [2.7.1]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.1
 [2.7.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.2
 [2.7.3]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.3
+[2.7.4]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.4
