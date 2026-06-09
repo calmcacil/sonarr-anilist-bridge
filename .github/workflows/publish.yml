@@ -142,6 +142,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute version components
+        id: version-parts
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          if [ -n "$TAG" ]; then
+            echo "full=$TAG" >> "$GITHUB_OUTPUT"
+            echo "major=$(echo "$TAG" | sed 's/\(v[0-9]*\).*/\1/')" >> "$GITHUB_OUTPUT"
+            echo "minor=$(echo "$TAG" | sed 's/\(v[0-9]*\.[0-9]*\).*/\1/')" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -149,12 +159,12 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=semver,pattern=v{{major}}
-            type=semver,pattern=v{{major}}.{{minor}}
-            type=semver,pattern=v{{version}}
+            type=ref,event=tag
             type=sha
             type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
-            type=raw,value=${{ needs.version.outputs.tag }},enable=${{ needs.version.outputs.tag != '' }}
+            type=raw,value=${{ steps.version-parts.outputs.full }},enable=${{ steps.version-parts.outputs.full != '' }}
+            type=raw,value=${{ steps.version-parts.outputs.major }},enable=${{ steps.version-parts.outputs.major != '' }}
+            type=raw,value=${{ steps.version-parts.outputs.minor }},enable=${{ steps.version-parts.outputs.minor != '' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
