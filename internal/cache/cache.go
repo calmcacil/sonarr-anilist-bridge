@@ -37,6 +37,11 @@ func Open(path string) (*Cache, error) {
 		return nil, fmt.Errorf("enable WAL: %w", err)
 	}
 
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		db.Close() //nolint:errcheck // cleanup on error path
+		return nil, fmt.Errorf("set busy_timeout: %w", err)
+	}
+
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS year_cache (
 			year       INTEGER NOT NULL PRIMARY KEY,
