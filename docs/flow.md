@@ -40,7 +40,7 @@
        │   └─ ±25% jitter on all delays
        └─ Store in cache (year_cache table)
 3. Winter overflow check (if season=WINTER or ALL)
-   └─ If year-1 missing → FetchAndStore(year-1) [synchronous]
+    └─ If year-1 missing → FetchAndStore(year-1) [async, fire-and-forget]
 4. Process pipeline (applied in order)
    ├─ Merge winter overflow shows (if WINTER/ALL)
    ├─ FilterBySeason (skipped if season=ALL)

@@ -16,7 +16,6 @@ cd "$(dirname "$0")/.." || exit 1
 
 export INTEGRATION=1
 export PREWARM_YEARS="$YEAR"
-export PREWARM_SEASONS="$SEASON"
 
 # Clean existing baselines to force regeneration
 BASEDIR="internal/scheduler/testdata"

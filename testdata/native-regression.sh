@@ -72,7 +72,6 @@ PORT="$REF_PORT" \
   CACHE_DB_PATH="$REF_DATA/cache.db" \
   MAPPING_PATH="$REF_DATA/mappings.json.zst" \
   PREWARM_YEARS="$(date +%Y)" \
-  PREWARM_SEASONS="winter" \
   LOG_LEVEL="info" \
   "$REF_BIN" &
 REF_PID=$!

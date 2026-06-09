@@ -208,25 +208,10 @@ INTEGRATION=1 go test -run TestIntegration ./... -v
 For changes flagged by code review (see issue #31):
 
 ```bash
-# 5a. Seed concurrent cache miss test
-go test -run TestConcurrent_CacheMiss -count=1 -v .
-
-# 5b. Verify resolver-not-loaded returns 503 not 200
+# 5a. Verify resolver-not-loaded returns 503 not 200
 # Remove mapping file, restart, hit /list, check HTTP status
 
-# 5c. Verify inflight dedup — concurrent FetchAndStore for same year
-# should produce only one API call
-go test -run TestFetchAndStore_Inflight -count=1 -v .
-
-# 5d. Verify winter overflow — same prior year shouldn't trigger
-# duplicate fetches on concurrent WINTER/ALL requests
-go test -run TestConcurrent_WinterOverflow -count=1 -v .
-
-# 5e. Verify 429 retry-after with mock server
-# (requires mock AniList server)
-go test -run TestRateLimit_RetryAfter -count=1 -v .
-
-# 5f. E2E endpoint smoke test with fish-like loop
+# 5b. E2E endpoint smoke test
 for s in winter spring summer fall; do
   printf "%s: " "$s"
   curl -s "http://localhost:8080/list?season=$s&year=2026" | python3 -c \
@@ -236,6 +221,9 @@ printf "all: "
 curl -s "http://localhost:8080/list?season=all&year=2026" | python3 -c \
   "import json,sys;print(len(json.load(sys.stdin)))"
 ```
+
+> Note: Tests referenced in issue #31 (TestConcurrent_CacheMiss, TestFetchAndStore_Inflight, etc.) 
+> are proposed but not yet implemented. Run existing unit tests with `-race` for concurrency checks.
 
 ## Phase 6: Container Lifecycle
 
