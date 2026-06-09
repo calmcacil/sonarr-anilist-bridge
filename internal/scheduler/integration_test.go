@@ -28,7 +28,6 @@ func TestIntegration_DataPipeline(t *testing.T) {
 
 	cfg := &config.Config{
 		PrewarmYears: []int{time.Now().Year()},
-		MaxPerSeason: 50,
 		IncludeTypes: []string{"TV", "ONA"},
 		CacheDBPath:  dbPath,
 	}
@@ -77,7 +76,6 @@ func TestIntegration_Prewarm(t *testing.T) {
 
 	cfg := &config.Config{
 		PrewarmYears: []int{time.Now().Year()},
-		MaxPerSeason: 50,
 		IncludeTypes: []string{"TV", "ONA"},
 		CacheDBPath:  dbPath,
 	}

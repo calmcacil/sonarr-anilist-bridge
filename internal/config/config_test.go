@@ -8,7 +8,7 @@ import (
 
 func TestLoad_Defaults(t *testing.T) {
 	for _, key := range []string{
-		"PORT", "MAX_PER_SEASON", "CACHE_DB_PATH", "LOG_LEVEL",
+		"PORT", "CACHE_DB_PATH", "LOG_LEVEL",
 		"PREWARM_YEARS", "INCLUDE_TYPES", "EXCLUDE_TAGS",
 		"MAPPING_PATH", "MAPPING_URL", "FILTER_FUTURE_ENABLED",
 	} {
@@ -19,9 +19,6 @@ func TestLoad_Defaults(t *testing.T) {
 
 	if cfg.Port != DefaultPort {
 		t.Errorf("Port = %d, want %d", cfg.Port, DefaultPort)
-	}
-	if cfg.MaxPerSeason != DefaultMaxPerSeason {
-		t.Errorf("MaxPerSeason = %d, want %d", cfg.MaxPerSeason, DefaultMaxPerSeason)
 	}
 	if cfg.CacheDBPath != DefaultCacheDBPath {
 		t.Errorf("CacheDBPath = %q, want %q", cfg.CacheDBPath, DefaultCacheDBPath)
@@ -51,7 +48,7 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_EnvOverrides(t *testing.T) {
 	keys := []string{
-		"PORT", "MAX_PER_SEASON", "LOG_LEVEL", "PREWARM_YEARS",
+		"PORT", "LOG_LEVEL", "PREWARM_YEARS",
 		"INCLUDE_TYPES", "EXCLUDE_TAGS", "MAPPING_PATH", "MAPPING_URL", "FILTER_FUTURE_ENABLED",
 	}
 	for _, key := range keys {
@@ -59,7 +56,6 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	}
 
 	os.Setenv("PORT", "9090")
-	os.Setenv("MAX_PER_SEASON", "50")
 	os.Setenv("LOG_LEVEL", "debug")
 	os.Setenv("PREWARM_YEARS", "2025,2026")
 	os.Setenv("INCLUDE_TYPES", "TV")
@@ -77,9 +73,6 @@ func TestLoad_EnvOverrides(t *testing.T) {
 
 	if cfg.Port != 9090 {
 		t.Errorf("Port = %d, want 9090", cfg.Port)
-	}
-	if cfg.MaxPerSeason != 50 {
-		t.Errorf("MaxPerSeason = %d, want 50", cfg.MaxPerSeason)
 	}
 	if cfg.LogLevel != "debug" {
 		t.Errorf("LogLevel = %q, want debug", cfg.LogLevel)

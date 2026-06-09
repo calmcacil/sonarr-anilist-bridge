@@ -39,7 +39,6 @@ func newTestScheduler(t *testing.T, c *cache.Cache) *scheduler.Scheduler {
 	writeTestMappingFile(t, dir)
 
 	cfg := &config.Config{
-		MaxPerSeason:         100,
 		IncludeTypes:         []string{"TV", "ONA"},
 		AnibridgeMappingPath: filepath.Join(dir, "mappings.json.zst"),
 		AnibridgeURL:         "http://127.0.0.1:1/nonexistent",
@@ -172,6 +171,8 @@ func TestHandleList_CacheMiss(t *testing.T) {
 		IncludeTypes: []string{"TV", "ONA"},
 	}
 
+	s.LoadResolver()
+
 	req := httptest.NewRequest(http.MethodGet, "/list?season=WINTER&year=2026", nil)
 	w := httptest.NewRecorder()
 
@@ -234,6 +235,8 @@ func TestHandleList_DefaultParams(t *testing.T) {
 		IncludeTypes: []string{"TV", "ONA"},
 	}
 
+	s.LoadResolver()
+
 	req := httptest.NewRequest(http.MethodGet, "/list", nil)
 	w := httptest.NewRecorder()
 
@@ -241,6 +244,56 @@ func TestHandleList_DefaultParams(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestHandleList_ResolverNotLoaded_Returns503(t *testing.T) {
+	t.Parallel()
+	c := newTestCache(t)
+	s := newTestScheduler(t, c)
+	cfg := &config.Config{
+		IncludeTypes: []string{"TV", "ONA"},
+	}
+	// Deliberately NOT calling s.LoadResolver()
+
+	req := httptest.NewRequest(http.MethodGet, "/list?season=WINTER&year=2026", nil)
+	w := httptest.NewRecorder()
+
+	handleList(c, s, cfg)(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleList_YearOutOfRange_Returns400(t *testing.T) {
+	t.Parallel()
+	c := newTestCache(t)
+	s := newTestScheduler(t, c)
+	cfg := &config.Config{
+		IncludeTypes: []string{"TV", "ONA"},
+	}
+
+	s.LoadResolver()
+
+	// Year far in the past (year-10 = 2016 for 2026)
+	req := httptest.NewRequest(http.MethodGet, "/list?season=WINTER&year=1990", nil)
+	w := httptest.NewRecorder()
+
+	handleList(c, s, cfg)(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Year far in the future
+	req = httptest.NewRequest(http.MethodGet, "/list?season=WINTER&year=2099", nil)
+	w = httptest.NewRecorder()
+
+	handleList(c, s, cfg)(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -255,25 +308,12 @@ func TestHandleList_InvalidCategory(t *testing.T) {
 		IncludeTypes: []string{"TV", "ONA"},
 	}
 
-	yearlyData := []byte(`[
-		{"id":1,"idMal":16498,"title":{"english":"Category Test"},"format":"TV","startDate":{"year":2026,"month":1},"tags":[],"episodes":12,"duration":24,"status":"FINISHED"}
-	]`)
-	if err := c.SetYear(2026, yearlyData); err != nil {
-		t.Fatal(err)
-	}
-
 	req := httptest.NewRequest(http.MethodGet, "/list?season=WINTER&year=2026&category=invalid", nil)
 	w := httptest.NewRecorder()
 
 	handleList(c, s, cfg)(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
-
-	var shows []map[string]interface{}
-	if err := json.Unmarshal(w.Body.Bytes(), &shows); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	t.Logf("got %d shows (category defaulted to series)", len(shows))
 }

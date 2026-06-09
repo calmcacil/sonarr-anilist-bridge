@@ -128,8 +128,9 @@ func TestPruneStaleYears(t *testing.T) {
 		t.Errorf("expected 0 pruned from fresh entries, got %d", n)
 	}
 
-	// Manually push last_hit far in the past
-	c.db.Exec(`UPDATE year_cache SET last_hit = 0`)
+	// Manually push last_hit and fetched_at far in the past so both
+	// prune fallbacks trigger correctly.
+	c.db.Exec(`UPDATE year_cache SET last_hit = 0, fetched_at = 0`)
 	n, err = c.PruneStaleYears(1)
 	if err != nil {
 		t.Fatalf("PruneStaleYears: %v", err)

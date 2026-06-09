@@ -16,7 +16,6 @@ const (
 type Config struct {
 	Port                int
 	PrewarmYears        []int
-	MaxPerSeason        int
 	IncludeTypes        []string
 	ExcludeTags         []string
 	CacheDBPath         string
@@ -28,15 +27,13 @@ type Config struct {
 }
 
 const (
-	DefaultPort         = 8080
-	DefaultMaxPerSeason = 100
-	DefaultCacheDBPath  = "/data/cache.db"
+	DefaultPort        = 8080
+	DefaultCacheDBPath = "/data/cache.db"
 )
 
 func Load() *Config {
 	cfg := &Config{
-		Port:     getEnvInt("PORT", DefaultPort),
-		MaxPerSeason: getEnvInt("MAX_PER_SEASON", DefaultMaxPerSeason),
+		Port:         getEnvInt("PORT", DefaultPort),
 		CacheDBPath:  getEnvStr("CACHE_DB_PATH", DefaultCacheDBPath),
 		LogLevel:     getEnvStr("LOG_LEVEL", "info"),
 
@@ -48,16 +45,6 @@ func Load() *Config {
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		slog.Warn("PORT invalid, using default", "value", cfg.Port, "default", DefaultPort)
 		cfg.Port = DefaultPort
-	}
-
-	// Clamp MaxPerSeason to reasonable bounds
-	if cfg.MaxPerSeason < 1 {
-		slog.Warn("MAX_PER_SEASON clamped to 1", "value", cfg.MaxPerSeason)
-		cfg.MaxPerSeason = 1
-	}
-	if cfg.MaxPerSeason > 500 {
-		slog.Warn("MAX_PER_SEASON clamped to 500", "value", cfg.MaxPerSeason)
-		cfg.MaxPerSeason = 500
 	}
 
 	cfg.PrewarmYears = parseYearList("PREWARM_YEARS", []int{time.Now().Year()})
@@ -72,12 +59,12 @@ func Load() *Config {
 	}
 
 	cfg.IncludeTypes = parseStringList("INCLUDE_TYPES", []string{"TV", "ONA"})
+	validateIncludeTypes(cfg.IncludeTypes)
 	cfg.ExcludeTags = parseStringList("EXCLUDE_TAGS", nil)
 	cfg.FilterFutureEnabled = getEnvBool("FILTER_FUTURE_ENABLED", true)
 
 	slog.Info("config loaded",
 		"port", cfg.Port,
-		"max_per_season", cfg.MaxPerSeason,
 		"include_types", cfg.IncludeTypes,
 		"exclude_tags", cfg.ExcludeTags,
 		"filter_future_enabled", cfg.FilterFutureEnabled,
@@ -155,4 +142,24 @@ func parseYearList(key string, def []int) []int {
 		return def
 	}
 	return out
+}
+
+// knownAniListFormats lists format values the AniList API returns for the
+// media type ANIME. Used to warn about likely-mistaken INCLUDE_TYPES values.
+var knownAniListFormats = map[string]bool{
+	"TV": true, "ONA": true, "MOVIE": true, "OVA": true, "SPECIAL": true,
+	"TV_SHORT": true, "MUSIC": true,
+}
+
+// validateIncludeTypes logs a warning for any value in the list that doesn't
+// match a known AniList format string.
+func validateIncludeTypes(types []string) {
+	for _, t := range types {
+		if !knownAniListFormats[t] {
+			slog.Warn("INCLUDE_TYPES contains unrecognized format, will match no shows",
+				"value", t,
+				"known_formats", []string{"TV", "ONA", "MOVIE", "OVA", "SPECIAL", "TV_SHORT", "MUSIC"},
+			)
+		}
+	}
 }
