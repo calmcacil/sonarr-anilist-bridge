@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/calmcacil/sonarr-anime-bridge/internal/anilist"
@@ -15,14 +16,22 @@ import (
 	"github.com/calmcacil/sonarr-anime-bridge/internal/mapping"
 )
 
+// inflightResult carries the outcome of an in-flight year fetch so that
+// concurrent waiters receive the same error (if any) as the original caller.
+type inflightResult struct {
+	err  error
+	done chan struct{}
+}
+
 type Scheduler struct {
 	cache    *cache.Cache
 	cfg      *config.Config
 	client   *anilist.Client
 	resolver *mapping.Resolver
 
-	wg       sync.WaitGroup
-	inflight sync.Map
+	wg         sync.WaitGroup
+	inflight   sync.Map
+	lastVacuum atomic.Int64
 }
 
 type Show struct {
@@ -181,35 +190,40 @@ func (s *Scheduler) Process(rawData []byte, season string, year int, category st
 	return s.resolveShows(shows), nil
 }
 
-func (s *Scheduler) FetchAndStore(ctx context.Context, year int) error {
-	ch := make(chan struct{})
-	actual, loaded := s.inflight.LoadOrStore(year, ch)
+func (s *Scheduler) FetchAndStore(ctx context.Context, year int) (err error) {
+	result := &inflightResult{done: make(chan struct{})}
+	actual, loaded := s.inflight.LoadOrStore(year, result)
 	if loaded {
 		slog.Debug("year fetch already in-flight, waiting", "year", year)
+		res := actual.(*inflightResult)
 		select {
-		case <-actual.(chan struct{}):
-			return nil
+		case <-res.done:
+			return res.err
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 	defer func() {
+		result.err = err
+		close(result.done)
 		s.inflight.Delete(year)
-		close(ch)
 	}()
 
-	shows, err := s.client.FetchYear(ctx, year, s.cfg.MaxPerSeason)
-	if err != nil {
-		return fmt.Errorf("fetch year %d: %w", year, err)
+	shows, fetchErr := s.client.FetchYear(ctx, year)
+	if fetchErr != nil {
+		err = fmt.Errorf("fetch year %d: %w", year, fetchErr)
+		return
 	}
 
-	data, err := json.Marshal(shows)
-	if err != nil {
-		return fmt.Errorf("marshal year %d: %w", year, err)
+	data, marshalErr := json.Marshal(shows)
+	if marshalErr != nil {
+		err = fmt.Errorf("marshal year %d: %w", year, marshalErr)
+		return
 	}
 
-	if err := s.cache.SetYear(year, data); err != nil {
-		return fmt.Errorf("cache set year %d: %w", year, err)
+	if cacheErr := s.cache.SetYear(year, data); cacheErr != nil {
+		err = fmt.Errorf("cache set year %d: %w", year, cacheErr)
+		return
 	}
 
 	slog.Info("year_cached", "year", year, "shows", len(shows))
@@ -251,15 +265,33 @@ func (s *Scheduler) prune(ctx context.Context) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
+	start := time.Now()
 	n, err := s.cache.PruneStaleYears(14)
 	if err != nil {
 		slog.Error("prune failed", "error", err)
 		return
 	}
 	if n > 0 {
-		slog.Info("pruned cache entries", "count", n)
-		if err := s.cache.Vacuum(); err != nil {
-			slog.Error("vacuum failed", "error", err)
+		slog.Info("pruned cache entries", "count", n, "duration", time.Since(start))
+		s.vacuumMaybe(ctx)
+	}
+}
+
+// vacuumMaybe runs VACUUM at most once per 24 hours to avoid blocking cache
+// operations on large databases too frequently.
+func (s *Scheduler) vacuumMaybe(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	const vacuumInterval = 24 * time.Hour
+	now := time.Now().Unix()
+	last := s.lastVacuum.Load()
+	if time.Unix(last, 0).Add(vacuumInterval).Before(time.Now()) {
+		if s.lastVacuum.CompareAndSwap(last, now) {
+			slog.Debug("running VACUUM on year_cache")
+			if err := s.cache.Vacuum(); err != nil {
+				slog.Error("vacuum failed", "error", err)
+			}
 		}
 	}
 }

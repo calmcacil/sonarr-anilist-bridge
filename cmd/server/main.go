@@ -119,27 +119,31 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 			return
 		}
 
+		if !sched.ResolverLoaded() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"degraded","reason":"resolver not loaded"}`))
+			return
+		}
+
 		yearStr := r.URL.Query().Get("year")
 		year := time.Now().Year()
 		if yearStr != "" {
 			if y, err := strconv.Atoi(yearStr); err == nil && y > 0 {
-				switch {
-				case y < year-10:
-					year -= 10
-				case y > year+10:
-					year += 10
-				default:
-					year = y
+				if y < year-10 || y > year+10 {
+					http.Error(w, fmt.Sprintf("year %d out of range (must be within %d to %d)", y, year-10, year+10), http.StatusBadRequest)
+					return
 				}
+				year = y
 			}
 		}
 
 		category := strings.TrimSpace(r.URL.Query().Get("category"))
 		if category == "" {
 			category = "series"
-		}
-		if category != "series" && category != "series-new" {
-			category = "series"
+		} else if category != "series" && category != "series-new" {
+			http.Error(w, fmt.Sprintf("invalid category: %q (valid values: series, series-new)", category), http.StatusBadRequest)
+			return
 		}
 
 		data, fresh, ok := db.GetYear(year)

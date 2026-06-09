@@ -163,8 +163,10 @@ func (c *Cache) NeedsRefreshYears(currentYear int, currentRefreshDays, pastRefre
 
 func (c *Cache) PruneStaleYears(days int) (int, error) {
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
+	// Use fetched_at as a fallback when last_hit is 0 (e.g. entries created
+	// before the column existed or after a failed last_hit UPDATE).
 	result, err := c.db.Exec(
-		`DELETE FROM year_cache WHERE last_hit < ?`,
+		`DELETE FROM year_cache WHERE CASE WHEN last_hit > 0 THEN last_hit ELSE fetched_at END < ?`,
 		cutoff,
 	)
 	if err != nil {

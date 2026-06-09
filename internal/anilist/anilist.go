@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -205,10 +207,10 @@ type graphqlResponse struct {
 
 // Client fetches data from the AniList GraphQL API.
 type Client struct {
-	http *http.Client
+	http    *http.Client
+	limiter *rate.Limiter
 
-	mu            sync.Mutex
-	lastCall      time.Time
+	rateLimitMu   sync.Mutex
 	lastRateLimit time.Time
 }
 
@@ -220,7 +222,8 @@ func New() *Client {
 // NewWithTimeout creates a new AniList client with the given HTTP timeout.
 func NewWithTimeout(timeout time.Duration) *Client {
 	return &Client{
-		http: &http.Client{Timeout: timeout},
+		http:    &http.Client{Timeout: timeout},
+		limiter: rate.NewLimiter(rate.Every(rateLimitDelay), 1),
 	}
 }
 
@@ -234,35 +237,24 @@ func jitter(d time.Duration) time.Duration {
 	return d + offset
 }
 
-// throttle ensures we don't exceed AniList rate limits.
-// After a 429 response, backs off to 5s for 30 seconds.
-func (c *Client) throttle() {
-	c.mu.Lock()
-	minDelay := rateLimitDelay
+// throttle ensures we don't exceed AniList rate limits using a token-bucket
+// rate limiter. After a 429 response, the limit is tightened to 5s between
+// requests for 30 seconds. The rate.Limiter is inherently goroutine-safe.
+func (c *Client) throttle(ctx context.Context) error {
+	c.rateLimitMu.Lock()
+	limit := rate.Every(rateLimitDelay)
 	if time.Since(c.lastRateLimit) < 30*time.Second {
-		minDelay = rateLimitBackoff
+		limit = rate.Every(rateLimitBackoff)
 	}
-	elapsed := time.Since(c.lastCall)
-	c.mu.Unlock()
+	c.limiter.SetLimit(limit)
+	c.rateLimitMu.Unlock()
 
-	minDelay = jitter(minDelay)
-	if elapsed < minDelay {
-		time.Sleep(minDelay - elapsed)
-	}
-
-	c.mu.Lock()
-	c.lastCall = time.Now()
-	c.mu.Unlock()
+	return c.limiter.Wait(ctx)
 }
 
 // FetchYear returns all anime (all seasons, all formats) for the given year.
 // Paginates through AniList's 50-per-page limit until all pages are fetched.
-func (c *Client) FetchYear(ctx context.Context, year int, maxResults int) ([]Show, error) {
-	perPage := maxPerPage
-	if maxResults > 0 && maxResults < perPage {
-		perPage = maxResults
-	}
-
+func (c *Client) FetchYear(ctx context.Context, year int) ([]Show, error) {
 	var allShows []Show
 	page := 1
 
@@ -273,14 +265,12 @@ func (c *Client) FetchYear(ctx context.Context, year int, maxResults int) ([]Sho
 		default:
 		}
 
-		c.throttle()
-
 		payload := map[string]any{
 			"query": yearQueryTemplate,
 			"variables": map[string]any{
 				"y":       year,
 				"page":    page,
-				"perPage": perPage,
+				"perPage": maxPerPage,
 			},
 		}
 
@@ -331,6 +321,10 @@ func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 			}
 		}
 
+		if err := c.throttle(ctx); err != nil {
+			return err
+		}
+
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase,
 			bytes.NewReader(payload))
 		if err != nil {
@@ -338,6 +332,7 @@ func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "sonarr-anime-bridge/1.0")
 
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -345,9 +340,9 @@ func (c *Client) doRequest(ctx context.Context, payload []byte, dst any) error {
 			continue
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			c.mu.Lock()
+			c.rateLimitMu.Lock()
 			c.lastRateLimit = time.Now()
-			c.mu.Unlock()
+			c.rateLimitMu.Unlock()
 			retryAfter := resp.Header.Get("Retry-After")
 			resp.Body.Close()
 			if retryAfter != "" {

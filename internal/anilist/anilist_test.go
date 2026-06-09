@@ -1,6 +1,7 @@
 package anilist
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -287,12 +288,15 @@ func TestClient_ConcurrentThrottle(t *testing.T) {
 	t.Parallel()
 
 	c := New()
+	ctx := context.Background()
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.throttle()
+			if err := c.throttle(ctx); err != nil {
+				t.Errorf("throttle: %v", err)
+			}
 		}()
 	}
 	wg.Wait()
