@@ -9,6 +9,12 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.7.5] — 2026-06-09
+
+### Fixed
+resolve verified issues from code review (issue #31)
+
 ## [2.7.4] — 2026-06-09
 
 ### Fixed
@@ -163,3 +169,4 @@ rename repo to sonarr-anime-bridge
 [2.7.2]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.2
 [2.7.3]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.3
 [2.7.4]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.4
+[2.7.5]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.5
