@@ -44,7 +44,7 @@ func TestIntegration_DataPipeline(t *testing.T) {
 	ctx := context.Background()
 	year := time.Now().Year()
 
-	if err := sched.FetchAndStore(ctx, year); err != nil {
+	if err := sched.FetchAndStore(ctx, year, "integration_test"); err != nil {
 		t.Fatalf("FetchAndStore: %v", err)
 	}
 
