@@ -2,7 +2,7 @@
 
 ## Architecture
 
-```
+```text
 cmd/server/main.go
   ├── internal/config/        → env-var configuration (no YAML/CLI)
   ├── internal/cache/         → SQLite year-cache (modernc.org/sqlite)
@@ -19,7 +19,7 @@ cache entries.
 
 ## Core Pipeline
 
-```
+```text
 request → db.GetYear(year)
   ├─ MISS → trigger async FetchAndStore(year) → return []
   ├─ WINTER + prior year missing → trigger async FetchAndStore(year-1)

@@ -14,7 +14,8 @@ Point Sonarr at `http://localhost:8080/list?season=all&year=2026`.
 ## Usage
 
 Add a **Custom List** in Sonarr:
-```
+
+```text
 http://<host>:8080/list?season=all&year=2026
 ```
 
