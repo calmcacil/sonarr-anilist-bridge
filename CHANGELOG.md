@@ -11,6 +11,13 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.8.0] — 2026-06-10
+
+### Added
+add trigger context to year_cached log entries
+add trigger context to year_cached log entries
+
 ## [2.7.6] — 2026-06-09
 
 ### Fixed
@@ -177,3 +184,4 @@ rename repo to sonarr-anime-bridge
 [2.7.4]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.4
 [2.7.5]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.5
 [2.7.6]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.6
+[2.8.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.8.0
