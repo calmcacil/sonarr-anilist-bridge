@@ -6,7 +6,7 @@ A long-running Go HTTP server packaged as a multi-arch Docker image that:
 2. Caches raw AniList JSON per year in SQLite
 3. Resolves AniList IDs to TVDB IDs via `anibridge/anibridge-mappings`
 4. Filters on-the-fly per request (season, format, duration, tags, future-date, first-season)
-5. Returns `[]` on cache miss, then backfills asynchronously
+5. Attempts synchronous fetch on cache miss; returns `[]` if fetch fails
 6. Refreshes stale data (current year daily, past weekly) and prunes cold entries (14 days)
 7. Refreshes the anibridge mapping daily via conditional HTTP (ETag)
 
@@ -32,7 +32,7 @@ A long-running Go HTTP server packaged as a multi-arch Docker image that:
 | Scenario | Behavior |
 |----------|----------|
 | Prewarmed year | Returns populated JSON immediately |
-| Non-prewarmed year | Returns `[]`, triggers async backfill |
+| Non-prewarmed year | Synchronous fetch attempt; returns `[]` if fetch fails |
 | Backfill complete | Returns full JSON array |
 | Stale cached data | Returns data, triggers async refresh |
 | Entry not hit in 14 days | Pruned |
