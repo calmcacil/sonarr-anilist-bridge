@@ -129,7 +129,7 @@ func (s *Scheduler) Prewarm(ctx context.Context) error {
 			}
 		}
 		slog.Info("prewarming", "year", year)
-		if err := s.FetchAndStore(ctx, year); err != nil {
+		if err := s.FetchAndStore(ctx, year, "prewarm"); err != nil {
 			slog.Error("prewarm failed", "year", year, "error", err)
 			if firstErr == nil {
 				firstErr = err
@@ -190,7 +190,7 @@ func (s *Scheduler) Process(rawData []byte, season string, year int, category st
 	return s.resolveShows(shows), nil
 }
 
-func (s *Scheduler) FetchAndStore(ctx context.Context, year int) (err error) {
+func (s *Scheduler) FetchAndStore(ctx context.Context, year int, trigger string) (err error) {
 	result := &inflightResult{done: make(chan struct{})}
 	actual, loaded := s.inflight.LoadOrStore(year, result)
 	if loaded {
@@ -226,7 +226,7 @@ func (s *Scheduler) FetchAndStore(ctx context.Context, year int) (err error) {
 		return
 	}
 
-	slog.Info("year_cached", "year", year, "shows", len(shows))
+	slog.Info("year_cached", "year", year, "shows", len(shows), "trigger", trigger)
 	return nil
 }
 
@@ -255,7 +255,7 @@ func (s *Scheduler) refreshStaleYears(ctx context.Context) {
 	}
 	for _, year := range years {
 		slog.Info("refreshing stale year", "year", year)
-		if err := s.FetchAndStore(ctx, year); err != nil {
+		if err := s.FetchAndStore(ctx, year, "stale_refresh"); err != nil {
 			slog.Error("stale year refresh failed", "year", year, "error", err)
 		}
 	}

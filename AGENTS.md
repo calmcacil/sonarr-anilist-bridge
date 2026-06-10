@@ -41,6 +41,17 @@ See `docs/PREFLIGHT_TEST.md` for full test procedures, organized by phase:
 - **Phase 5** (code review findings): validation tests from issue #31
 - **Phase 6** (startup/shutdown): container lifecycle tests
 
+## Release Workflow
+
+When the user asks for a release:
+1. Create a feature branch off `main` (e.g., `feat/description`)
+2. Commit changes with a conventional commit message (`feat:`, `fix:`, `perf:`, etc.)
+3. Push the branch and create a PR against `main`
+4. Wait for CI tests to pass on the PR
+5. Merge the PR — the `publish.yml` workflow auto-generates the version bump,
+   changelog, and GitHub Release from the conventional commit
+6. **Do not** manually edit `CHANGELOG.md` — it is managed by the automated release workflow
+
 ## Project Commands
 
 - **Build**: `go build ./...`

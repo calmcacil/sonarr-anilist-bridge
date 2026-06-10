@@ -154,7 +154,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 				"category", category,
 			)
 
-			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year); err != nil {
+			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year, "cache_miss"); err != nil {
 				slog.Error("trigger backfill failed", "error", err)
 				writeJSON(w, []byte("[]"))
 				return
@@ -172,7 +172,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 			slog.Debug("winter overflow: prior year not cached, triggering backfill",
 				"prior_year", year-1,
 			)
-			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year-1); err != nil {
+			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year-1, "winter_overflow"); err != nil {
 				slog.Error("winter overflow backfill failed", "error", err)
 			}
 		}
@@ -190,7 +190,7 @@ func handleList(db *cache.Cache, sched *scheduler.Scheduler, cfg *config.Config)
 				"year", year,
 				"category", category,
 			)
-			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year); err != nil {
+			if err := sched.FetchAndStore(context.WithoutCancel(r.Context()), year, "stale_refresh"); err != nil {
 				slog.Error("stale refresh failed", "error", err)
 			}
 		}

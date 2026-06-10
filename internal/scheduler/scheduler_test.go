@@ -38,7 +38,7 @@ func TestFetchAndStore_InflightErrorPropagation(t *testing.T) {
 	// Waiter calls FetchAndStore — should find the inflight entry and block.
 	waiterErr := make(chan error, 1)
 	go func() {
-		waiterErr <- s.FetchAndStore(context.Background(), 2026)
+		waiterErr <- s.FetchAndStore(context.Background(), 2026, "test")
 	}()
 
 	// Give the waiter time to reach the select on result.done.
@@ -67,7 +67,7 @@ func TestFetchAndStore_InflightErrorPropagation(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = s.FetchAndStore(context.Background(), 2025)
+			_ = s.FetchAndStore(context.Background(), 2025, "test")
 		}()
 	}
 	wg.Wait()
