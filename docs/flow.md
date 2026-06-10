@@ -11,15 +11,15 @@
 2. main.go run()
    ├─ Load config (environment variables)
    ├─ Open SQLite cache (/data/cache.db)
+   ├─ Create Scheduler (holds anilist.Client + Cache)
    ├─ Load anibridge mappings (/data/anibridge_mappings.json.zst)
    │   └─ Downloads from GitHub releases if missing
-   ├─ Create Scheduler (holds anilist.Client + Cache)
+   ├─ Start background workers (stale refresh, prune, stats, mapping refresh)
    ├─ Start HTTP server (LISTENS IMMEDIATELY)
    │   ├─ GET /list        → handleList
    │   ├─ GET /health      → handleHealth
    │   ├─ GET /cache/stats → handleCacheStats
    │   └─ POST /cache/clear → handleCacheClear
-   ├─ Start background workers (stale refresh, prune, stats)
    └─ Prewarm (runs after HTTP listener starts)
        ├─ For each PREWARM_YEARS
        │   └─ If cache fresh (<24h) → SKIP
@@ -48,8 +48,9 @@
    ├─ Filter (duration >10min, exclude tags)
    ├─ FilterFuture (3 months ahead, if FILTER_FUTURE_ENABLED=true)
    ├─ FilterFirstSeason (if category=series-new)
-   └─ Resolve TVDB IDs via anibridge mapping (MAL/AniList → TVDB)
-5. Return JSON: [{tvdbId, title}, ...]
+    └─ Resolve TVDB IDs via anibridge mapping (MAL/AniList → TVDB)
+5. If data was stale (!fresh) → trigger async FetchAndStore(year) [fire-and-forget]
+6. Return JSON: [{tvdbId, title}, ...]
 ```
 
 ## Data Flow

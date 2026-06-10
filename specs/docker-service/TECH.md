@@ -21,7 +21,7 @@ cache entries.
 
 ```text
 request → db.GetYear(year)
-  ├─ MISS → trigger async FetchAndStore(year) → return []
+  ├─ MISS → synchronous FetchAndStore(year) → still no data → return []
   ├─ WINTER + prior year missing → trigger async FetchAndStore(year-1)
   └─ HIT → sched.Process(rawData, season, year, category)
        ├─ Unmarshal raw JSON
@@ -45,7 +45,6 @@ Pure `os.Getenv`. All values validated/clamped on load.
 |-------|---------|---------|
 | `Port` | `PORT` | `8080` (clamped 1–65535) |
 | `PrewarmYears` | `PREWARM_YEARS` | `[current year]` |
-| `MaxPerSeason` | `MAX_PER_SEASON` | `100` (clamped 1–500) |
 | `IncludeTypes` | `INCLUDE_TYPES` | `["TV", "ONA"]` |
 | `ExcludeTags` | `EXCLUDE_TAGS` | `nil` |
 | `FilterFutureEnabled` | `FILTER_FUTURE_ENABLED` | `true` |
@@ -103,8 +102,9 @@ in-flight lookups. Resolution order: MAL first, AniList fallback.
 
 ### `cmd/server/main.go`
 
-Stdlib `net/http`. Startup: load config → open cache → load resolver → prewarm
-configured years (blocking) → start background goroutines → listen.
+Stdlib `net/http`. Startup: load config → open cache → load resolver → start
+background goroutines → start HTTP server (listens immediately) → prewarm
+configured years (blocking).
 
 Graceful shutdown: cancel context → `server.Shutdown(10s)` → `sched.Wait(5s)`.
 
