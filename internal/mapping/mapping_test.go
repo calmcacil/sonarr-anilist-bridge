@@ -1076,5 +1076,3 @@ func zstdBytes(content string) []byte {
 	}
 	return buf.Bytes()
 }
-
-

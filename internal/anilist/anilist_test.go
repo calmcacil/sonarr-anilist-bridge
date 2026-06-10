@@ -301,4 +301,3 @@ func TestClient_ConcurrentThrottle(t *testing.T) {
 	}
 	wg.Wait()
 }
-

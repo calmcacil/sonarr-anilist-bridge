@@ -2,7 +2,7 @@
 
 ## Startup Sequence
 
-```
+```text
 1. Entrypoint (entrypoint.sh)
    ├─ Creates appuser (PUID/PGID)
    ├─ chown -R /data
@@ -28,7 +28,7 @@
 
 ## Request Handling: `GET /list?season=X&year=Y`
 
-```
+```text
 1. Parse params (season, year, category)
 2. GetYear(year) from cache
    ├─ HIT  → fresh/ok → process pipeline
@@ -54,7 +54,7 @@
 
 ## Data Flow
 
-```
+```text
 AniList GraphQL API → JSON → SQLite cache → Filter pipeline → TVDB resolution → HTTP JSON response
 ```
 
@@ -84,7 +84,7 @@ AniList GraphQL API → JSON → SQLite cache → Filter pipeline → TVDB resol
 
 ## Shutdown
 
-```
-SIGTERM → graceful HTTP shutdown (10s timeout) → cancel context 
+```text
+SIGTERM → graceful HTTP shutdown (10s timeout) → cancel context
          → background workers stop → db.Close()
 ```

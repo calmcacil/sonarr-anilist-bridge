@@ -222,7 +222,7 @@ curl -s "http://localhost:8080/list?season=all&year=2026" | python3 -c \
   "import json,sys;print(len(json.load(sys.stdin)))"
 ```
 
-> Note: Tests referenced in issue #31 (TestConcurrent_CacheMiss, TestFetchAndStore_Inflight, etc.) 
+> Note: Tests referenced in issue #31 (TestConcurrent_CacheMiss, TestFetchAndStore_Inflight, etc.)
 > are proposed but not yet implemented. Run existing unit tests with `-race` for concurrency checks.
 
 ## Phase 6: Container Lifecycle
