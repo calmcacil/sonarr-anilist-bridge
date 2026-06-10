@@ -12,6 +12,13 @@ version bump and GitHub Release with auto-generated notes.
 
 
 
+
+## [2.9.0] — 2026-06-10
+
+### Added
+add pre-commit hooks with lint, build, test, markdownlint, and conventional commit enforcement
+add pre-commit hooks with lint, build, test, markdownlint, and conventional commit enforcement
+
 ## [2.8.0] — 2026-06-10
 
 ### Added
@@ -185,3 +192,4 @@ rename repo to sonarr-anime-bridge
 [2.7.5]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.5
 [2.7.6]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.7.6
 [2.8.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.8.0
+[2.9.0]: https://github.com/calmcacil/sonarr-anime-bridge/releases/tag/v2.9.0
